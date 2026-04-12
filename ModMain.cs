@@ -1,27 +1,87 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
 using MGSC;
+using Newtonsoft.Json;
 using UnityEngine;
 
 namespace QuasimorphHelloWorld
 {
+public class ModConfig
+{
+	public class ItemEntry
+	{
+		public string ItemId { get; set; } = "";
+		public int Count { get; set; } = 1;
+	}
+
+	public List<ItemEntry> Items { get; set; } = new List<ItemEntry>
+	{
+		new ItemEntry { ItemId = "water_bottle_1", Count = 3 }
+	};
+
+	public string HotkeyCode { get; set; } = "G";
+}
+
 	public static class ModMain
 	{
-		private static readonly Dictionary<string, int> _desiredItems = new Dictionary<string, int>
-		{
-			{ "water_bottle_1", 1 },
-			{ "powder", 1 },
-		};
+		private static ModConfig _config = new ModConfig();
+		private static KeyCode _hotkey = KeyCode.G;
+
+		private static string ConfigPath => Path.Combine(
+			Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+			"..", "LocalLow", "Magnum Scriptum Ltd",
+			"Quasimorph_ModConfigs", "QuickGear", "config.json"
+		);
 
 		[Hook(ModHookType.AfterBootstrap)]
 		public static void OnAfterBootstrap(IModContext context)
 		{
-			Debug.Log("[QuickGear] Loaded, built: " + System.IO.File.GetLastWriteTime(typeof(ModMain).Assembly.Location));
+			Debug.Log("[QuickGear] Loaded, built: " + File.GetLastWriteTime(typeof(ModMain).Assembly.Location));
+			LoadConfig();
+		}
+
+		private static void LoadConfig()
+		{
+			try
+			{
+				string path = ConfigPath;
+				string dir = Path.GetDirectoryName(path);
+
+				if (!Directory.Exists(dir))
+				{
+					Directory.CreateDirectory(dir);
+				}
+
+				if (!File.Exists(path))
+				{
+					string defaultJson = JsonConvert.SerializeObject(_config, Formatting.Indented);
+					File.WriteAllText(path, defaultJson);
+					Debug.Log("[QuickGear] Created default config at: " + path);
+				}
+				else
+				{
+					string json = File.ReadAllText(path);
+					_config = JsonConvert.DeserializeObject<ModConfig>(json);
+					Debug.Log("[QuickGear] Loaded config from: " + path);
+				}
+
+				if (!Enum.TryParse<KeyCode>(_config.HotkeyCode, out _hotkey))
+				{
+					Debug.Log("[QuickGear] Invalid hotkey '" + _config.HotkeyCode + "', defaulting to G.");
+					_hotkey = KeyCode.G;
+				}
+			}
+			catch (Exception e)
+			{
+				Debug.Log("[QuickGear] Failed to load config, using defaults. Error: " + e.Message);
+			}
 		}
 
 		[Hook(ModHookType.SpaceUpdateAfterGameLoop)]
 		public static void OnSpaceUpdate(IModContext context)
 		{
-			if (!Input.GetKeyDown(KeyCode.G))
+			if (!Input.GetKeyDown(_hotkey))
 			{
 				return;
 			}
@@ -35,9 +95,9 @@ namespace QuasimorphHelloWorld
 				return;
 			}
 
-			foreach (KeyValuePair<string, int> desired in _desiredItems)
+			foreach (ModConfig.ItemEntry entry in _config.Items)
 			{
-				PullFromCargo(cargo, mercenaries, desired.Key, desired.Value);
+				PullFromCargo(cargo, mercenaries, entry.ItemId, entry.Count);
 			}
 		}
 
@@ -55,7 +115,7 @@ namespace QuasimorphHelloWorld
 				}
 
 				int availableInCargo = CountItemsInCargo(cargo, itemId);
-				int toPull = System.Math.Min(needed, availableInCargo);
+				int toPull = Math.Min(needed, availableInCargo);
 
 				if (toPull <= 0)
 				{
@@ -77,16 +137,10 @@ namespace QuasimorphHelloWorld
 							break;
 						}
 					}
-					if (sourceItem != null)
-					{
-						break;
-					}
+					if (sourceItem != null) break;
 				}
 
-				if (sourceItem == null)
-				{
-					break;
-				}
+				if (sourceItem == null) break;
 
 				BasePickupItem newItem = SingletonMonoBehaviour<ItemFactory>.Instance.CreateForInventory(itemId);
 				newItem.StackCount = (short)toPull;
