@@ -1,6 +1,6 @@
 {
-  "UniqueModName": "hello_world",
-  "Assemblies": ["QuasimorphHelloWorld.dll"],
+  "UniqueModName": "QuickGear",
+  "Assemblies": ["Quasimorph_QuickGear.dll"],
   "Dependencies": [],
-  "SteamTags": []
+  "SteamTags": ["Quality of Life","0.9.9"]
 }
