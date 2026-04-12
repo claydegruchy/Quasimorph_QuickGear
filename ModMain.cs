@@ -28,7 +28,8 @@ namespace QuasimorphHelloWorld
             {
                 Items = new List<ModConfig.ItemEntry>
                 {
-                    new ModConfig.ItemEntry { ItemId = "water_bottle_1", Count = 2 }
+                    new ModConfig.ItemEntry { ItemId = "medical_kit_2", Count = 2 },
+                    new ModConfig.ItemEntry { ItemId = "water_bottle_1", Count = 1 }
                 },
                 HotkeyCode = "G"
             };
