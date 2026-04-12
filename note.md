@@ -10,6 +10,6 @@ create mod enytry on steam
 mod_createworkshopitem C:\Users\clayd\Documents\Projects\QuasimorphHelloWorld\bin\Debug\netstandard2.1
 
 update entry on steam
-mod_updateworkshopitem 3705314255 C:\Users\clayd\Documents\Projects\QuasimorphHelloWorld\bin\Debug\netstandard2.1 true
+mod_updateworkshopitem 3705314255 C:\Users\clayd\Documents\Projects\QuasimorphHelloWorld\build true
 
 ilspycmd -p -o "C:\Users\clayd\Documents\Projects\QuasimorphHelloWorld\Decompiled" "D:\SteamLibrary\steamapps\common\Quasimorph\Quasimorph_Data\Managed\Assembly-CSharp.dll"
