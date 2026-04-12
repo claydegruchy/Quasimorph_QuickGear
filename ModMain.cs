@@ -6,23 +6,20 @@ namespace QuasimorphHelloWorld
 {
 	public static class ModMain
 	{
-		private static IModContext _context;
-
-		// Items to move from ship cargo to mercenary inventory
-		private static readonly List<string> _itemIds = new List<string>
+		private static readonly Dictionary<string, int> _desiredItems = new Dictionary<string, int>
 		{
-			"water_bottle_1",
+			{ "water_bottle_1", 3 },
 		};
-[Hook(ModHookType.AfterBootstrap)]
-public static void OnAfterBootstrap(IModContext context)
-{
-    UnityEngine.Debug.Log("[QuickGear] Loaded, built: " + System.IO.File.GetLastWriteTime(typeof(ModMain).Assembly.Location));
-}
+
+		[Hook(ModHookType.AfterBootstrap)]
+		public static void OnAfterBootstrap(IModContext context)
+		{
+			Debug.Log("[QuickGear] Loaded, built: " + System.IO.File.GetLastWriteTime(typeof(ModMain).Assembly.Location));
+		}
 
 		[Hook(ModHookType.SpaceStarted)]
 		public static void OnSpaceStarted(IModContext context)
 		{
-			_context = context;
 		}
 
 		[Hook(ModHookType.SpaceUpdateAfterGameLoop)]
@@ -42,16 +39,41 @@ public static void OnAfterBootstrap(IModContext context)
 				return;
 			}
 
-			Mercenary merc = mercenaries.Values[0];
-			Inventory inventory = merc.CreatureData.Inventory;
-
-			foreach (string itemId in _itemIds)
+			foreach (KeyValuePair<string, int> desired in _desiredItems)
 			{
-				MoveItemToInventory(cargo, inventory, itemId);
+				string itemId = desired.Key;
+				int targetCount = desired.Value;
+
+				int current = CountItemsInAllInventories(mercenaries, itemId);
+				int needed = targetCount - current;
+
+				Debug.Log($"[QuickGear] {itemId}: have {current}, want {targetCount}, pulling {needed}");
+
+				for (int i = 0; i < needed; i++)
+				{
+					if (!PullOneFromCargo(cargo, mercenaries, itemId))
+					{
+						Debug.Log("[QuickGear] Could not pull more of: " + itemId);
+						break;
+					}
+				}
 			}
 		}
 
-		private static void MoveItemToInventory(MagnumCargo cargo, Inventory inventory, string itemId)
+		private static int CountItemsInAllInventories(Mercenaries mercenaries, string itemId)
+		{
+			int count = 0;
+			foreach (Mercenary merc in mercenaries.Values)
+			{
+				foreach (ItemStorage storage in merc.CreatureData.Inventory.AllContainers)
+				{
+					count += storage.CountItems(itemId);
+				}
+			}
+			return count;
+		}
+
+		private static bool PullOneFromCargo(MagnumCargo cargo, Mercenaries mercenaries, string itemId)
 		{
 			foreach (ItemStorage tab in cargo.ShipCargo)
 			{
@@ -64,21 +86,24 @@ public static void OnAfterBootstrap(IModContext context)
 					}
 
 					tab.Remove(item);
-					if (!inventory.BackpackStore.TryPutItem(item, CellPosition.Zero))
+
+					foreach (Mercenary merc in mercenaries.Values)
 					{
-						// No space, put it back
-						tab.AddItemAndReshuffleOptional(item);
-						Debug.Log("[QuickGear] No space in backpack for: " + itemId);
+						if (merc.CreatureData.Inventory.BackpackStore.TryPutItem(item, CellPosition.Zero))
+						{
+							Debug.Log($"[QuickGear] Moved {itemId} to {merc.ProfileId}");
+							return true;
+						}
 					}
-					else
-					{
-						Debug.Log("[QuickGear] Moved: " + itemId);
-					}
-					return;
+
+					// No merc had space, put it back
+					tab.AddItemAndReshuffleOptional(item);
+					Debug.Log("[QuickGear] No merc had space for: " + itemId);
+					return false;
 				}
 			}
 
-			Debug.Log("[QuickGear] Item not found in cargo: " + itemId);
+			return false;
 		}
 	}
 }
