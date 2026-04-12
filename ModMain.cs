@@ -17,11 +17,6 @@ namespace QuasimorphHelloWorld
 			Debug.Log("[QuickGear] Loaded, built: " + System.IO.File.GetLastWriteTime(typeof(ModMain).Assembly.Location));
 		}
 
-		[Hook(ModHookType.SpaceStarted)]
-		public static void OnSpaceStarted(IModContext context)
-		{
-		}
-
 		[Hook(ModHookType.SpaceUpdateAfterGameLoop)]
 		public static void OnSpaceUpdate(IModContext context)
 		{
@@ -47,16 +42,26 @@ namespace QuasimorphHelloWorld
 				int current = CountItemsInAllInventories(mercenaries, itemId);
 				int needed = targetCount - current;
 
-				Debug.Log($"[QuickGear] {itemId}: have {current}, want {targetCount}, pulling {needed}");
+				Debug.Log($"[QuickGear] {itemId}: have {current}, want {targetCount}, need to pull {needed}");
 
-				for (int i = 0; i < needed; i++)
+				if (needed <= 0)
 				{
-					if (!PullOneFromCargo(cargo, mercenaries, itemId))
-					{
-						Debug.Log("[QuickGear] Could not pull more of: " + itemId);
-						break;
-					}
+					Debug.Log($"[QuickGear] Already have enough {itemId}, skipping.");
+					continue;
 				}
+
+				int availableInCargo = CountItemsInCargo(cargo, itemId);
+				int toPull = System.Math.Min(needed, availableInCargo);
+
+				Debug.Log($"[QuickGear] {itemId}: cargo has {availableInCargo}, pulling {toPull}");
+
+				if (toPull <= 0)
+				{
+					Debug.Log($"[QuickGear] None in cargo: {itemId}");
+					continue;
+				}
+
+				PullFromCargo(cargo, mercenaries, itemId, toPull);
 			}
 		}
 
@@ -73,37 +78,73 @@ namespace QuasimorphHelloWorld
 			return count;
 		}
 
-		private static bool PullOneFromCargo(MagnumCargo cargo, Mercenaries mercenaries, string itemId)
+		private static int CountItemsInCargo(MagnumCargo cargo, string itemId)
 		{
+			int count = 0;
+			foreach (ItemStorage tab in cargo.ShipCargo)
+			{
+				count += tab.CountItems(itemId);
+			}
+			return count;
+		}
+
+		private static void PullFromCargo(MagnumCargo cargo, Mercenaries mercenaries, string itemId, int count)
+		{
+			// Find the source stack in cargo
+			BasePickupItem sourceItem = null;
+			ItemStorage sourceTab = null;
+
 			foreach (ItemStorage tab in cargo.ShipCargo)
 			{
 				for (int i = tab.Items.Count - 1; i >= 0; i--)
 				{
-					BasePickupItem item = tab.Items[i];
-					if (!item.Id.Equals(itemId))
+					if (tab.Items[i].Id.Equals(itemId))
 					{
-						continue;
+						sourceItem = tab.Items[i];
+						sourceTab = tab;
+						break;
 					}
-
-					tab.Remove(item);
-
-					foreach (Mercenary merc in mercenaries.Values)
-					{
-						if (merc.CreatureData.Inventory.BackpackStore.TryPutItem(item, CellPosition.Zero))
-						{
-							Debug.Log($"[QuickGear] Moved {itemId} to {merc.ProfileId}");
-							return true;
-						}
-					}
-
-					// No merc had space, put it back
-					tab.AddItemAndReshuffleOptional(item);
-					Debug.Log("[QuickGear] No merc had space for: " + itemId);
-					return false;
+				}
+				if (sourceItem != null)
+				{
+					break;
 				}
 			}
 
-			return false;
+			if (sourceItem == null)
+			{
+				Debug.Log("[QuickGear] Source item disappeared: " + itemId);
+				return;
+			}
+
+			// Create new item with exact count needed
+			BasePickupItem newItem = SingletonMonoBehaviour<ItemFactory>.Instance.CreateForInventory(itemId);
+			newItem.StackCount = (short)count;
+
+			// Deduct from cargo first before attempting to place
+			sourceItem.StackCount -= (short)count;
+			if (sourceItem.StackCount <= 0)
+			{
+				sourceTab.Remove(sourceItem);
+			}
+
+			// Try to place into a merc backpack
+			foreach (Mercenary merc in mercenaries.Values)
+			{
+				if (merc.CreatureData.Inventory.BackpackStore.TryPutItem(newItem, CellPosition.Zero))
+				{
+					Debug.Log($"[QuickGear] Moved {count}x {itemId} to {merc.ProfileId}");
+					return;
+				}
+			}
+
+			// No merc had space — put the count back into cargo
+			Debug.Log("[QuickGear] No merc had space, returning items to cargo.");
+			sourceItem.StackCount += (short)count;
+			if (!sourceTab.Items.Contains(sourceItem))
+			{
+				sourceTab.AddItemAndReshuffleOptional(sourceItem);
+			}
 		}
 	}
 }
