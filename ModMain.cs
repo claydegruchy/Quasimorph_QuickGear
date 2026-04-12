@@ -15,17 +15,24 @@ namespace QuasimorphHelloWorld
             public int Count { get; set; } = 1;
         }
 
-        public List<ItemEntry> Items { get; set; } =
-            new List<ItemEntry>
-            {
-                new ItemEntry { ItemId = "water_bottle_1", Count = 3 }
-            };
+        public List<ItemEntry> Items { get; set; } = new List<ItemEntry> { };
 
         public string HotkeyCode { get; set; } = "G";
     }
 
     public static class ModMain
     {
+        // default config
+        public static ModConfig _default_config =>
+            new ModConfig
+            {
+                Items = new List<ModConfig.ItemEntry>
+                {
+                    new ModConfig.ItemEntry { ItemId = "water_bottle_1", Count = 2 }
+                },
+                HotkeyCode = "G"
+            };
+
         private static ModConfig _config = new ModConfig();
         private static KeyCode _hotkey = KeyCode.G;
 
@@ -64,15 +71,24 @@ namespace QuasimorphHelloWorld
 
                 if (!File.Exists(path))
                 {
-                    string defaultJson = JsonConvert.SerializeObject(_config, Formatting.Indented);
+                    string defaultJson = JsonConvert.SerializeObject(
+                        _default_config,
+                        Formatting.Indented
+                    );
                     File.WriteAllText(path, defaultJson);
                     Debug.Log("[QuickGear] Created default config at: " + path);
                 }
                 else
                 {
                     string json = File.ReadAllText(path);
+
                     _config = JsonConvert.DeserializeObject<ModConfig>(json);
                     Debug.Log("[QuickGear] Loaded config from: " + path);
+                    Debug.Log("[QuickGear] JSON contents: " + json);
+                    Debug.Log(
+                        "[QuickGear] Config contents: "
+                            + JsonConvert.SerializeObject(_config, Formatting.Indented)
+                    );
                 }
 
                 if (!Enum.TryParse<KeyCode>(_config.HotkeyCode, out _hotkey))
@@ -105,14 +121,14 @@ namespace QuasimorphHelloWorld
                 Debug.Log("[QuickGear] State not ready.");
                 return;
             }
-
-            Mercenary selectedMerc = GetSelectedMerc();
-            List<Mercenary> targets =
-                selectedMerc != null ? new List<Mercenary> { selectedMerc } : mercenaries.Values;
+            Debug.Log(
+                "[QuickGear] Running quick gear. Config contents: "
+                    + JsonConvert.SerializeObject(_config, Formatting.Indented)
+            );
 
             foreach (ModConfig.ItemEntry entry in _config.Items)
             {
-                PullFromCargo(cargo, targets, entry.ItemId, entry.Count);
+                PullFromCargo(cargo, mercenaries, entry.ItemId, entry.Count);
             }
         }
 
@@ -192,32 +208,6 @@ namespace QuasimorphHelloWorld
                     }
                 }
             }
-        }
-
-        private static Mercenary GetSelectedMerc()
-        {
-            if (!UI.IsShowing<ArsenalScreen>())
-            {
-                return null;
-            }
-
-            ArsenalScreen screen = UI.Get<ArsenalScreen>();
-            if (screen == null)
-            {
-                return null;
-            }
-
-            System.Reflection.FieldInfo field = typeof(ArsenalScreen).GetField(
-                "_merc",
-                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance
-            );
-
-            if (field == null)
-            {
-                return null;
-            }
-
-            return field.GetValue(screen) as Mercenary;
         }
 
         private static int CountItemsInInventory(Mercenary merc, string itemId)
