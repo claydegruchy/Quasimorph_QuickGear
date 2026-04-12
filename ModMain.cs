@@ -107,8 +107,15 @@ namespace QuasimorphHelloWorld
             }
 
             Mercenary selectedMerc = GetSelectedMerc();
-            List<Mercenary> targets =
-                selectedMerc != null ? new List<Mercenary> { selectedMerc } : mercenaries.Values;
+List<Mercenary> targets;
+if (selectedMerc != null)
+{
+	targets = new List<Mercenary> { selectedMerc };
+}
+else
+{
+	targets = mercenaries.Values;
+}
 
             foreach (ModConfig.ItemEntry entry in _config.Items)
             {
@@ -118,12 +125,12 @@ namespace QuasimorphHelloWorld
 
         private static void PullFromCargo(
             MagnumCargo cargo,
-            Mercenaries mercenaries,
+            List<Mercenary> mercs,
             string itemId,
             int countPerMerc
         )
         {
-            foreach (Mercenary merc in mercenaries.Values)
+            foreach (Mercenary merc in mercs.Values)
             {
                 int current = CountItemsInInventory(merc, itemId);
                 int needed = countPerMerc - current;
