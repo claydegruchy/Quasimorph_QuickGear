@@ -1,0 +1,6 @@
+{
+  "UniqueModName": "hello_world",
+  "Assemblies": ["QuasimorphHelloWorld.dll"],
+  "Dependencies": [],
+  "SteamTags": []
+}
