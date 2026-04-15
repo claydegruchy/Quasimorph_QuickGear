@@ -2,7 +2,7 @@ This mod lets you automatically add selected items to mercs easily, for example 
 
 [h2]How it works[/h2]
 
-You define a list of items you want each merc to have, then press G (by default) and the mod attempts to automatically add those items to each merc’s inventory. 
+You define a list of items you want  a merc to get, then press G (by default) and the mod attempts to automatically add those items to the currently selected merc’s inventory. If no merc is selected, it will attempt to add the items to EVERY merc.
 
 You can change what is added in the config, by default it attempts to give everyone: 
 2 military medkits 
@@ -18,6 +18,13 @@ For me thats
 [code]C:\Users\ME\AppData\LocalLow\Magnum Scriptum LTD\Quasimorph_ModConfigs\QuickGear\config.json[/code]
 
 You can set the items you want in there as well as the hotkey for the mod (Default G)
+
+
+
+[h3]Per Save Config[/h3]
+Each save slot also has its own config, you can find it in the same directory.
+
+[h3]Premade settings[/h3]
 
 Not everyone is big on playing around in files (who tf is jason) so heres some presets/examples that can be pasted directly into config.json:
 

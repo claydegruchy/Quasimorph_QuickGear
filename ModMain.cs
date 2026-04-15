@@ -22,7 +22,6 @@ namespace QuasimorphHelloWorld
 
     public static class ModMain
     {
-        // default config
         public static ModConfig _default_config =>
             new ModConfig
             {
@@ -37,7 +36,7 @@ namespace QuasimorphHelloWorld
         private static ModConfig _config = new ModConfig();
         private static KeyCode _hotkey = KeyCode.G;
 
-        private static string ConfigPath =>
+        private static string DefaultConfigPath =>
             Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                 "..",
@@ -48,6 +47,17 @@ namespace QuasimorphHelloWorld
                 "config.json"
             );
 
+        private static string SlotConfigPath(int slot) =>
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "..",
+                "LocalLow",
+                "Magnum Scriptum Ltd",
+                "Quasimorph_ModConfigs",
+                "QuickGear",
+                $"slot_{slot}_config.json"
+            );
+
         [Hook(ModHookType.AfterBootstrap)]
         public static void OnAfterBootstrap(IModContext context)
         {
@@ -55,14 +65,38 @@ namespace QuasimorphHelloWorld
                 "[QuickGear] Loaded, built: "
                     + File.GetLastWriteTime(typeof(ModMain).Assembly.Location)
             );
-            LoadConfig();
+            EnsureDefaultConfig();
         }
 
-        private static void LoadConfig()
+        [Hook(ModHookType.AfterSaveLoaded)]
+        public static void OnAfterSaveLoaded(IModContext context)
+        {
+            SavedGameMetadata meta = context.State.Get<SavedGameMetadata>();
+            if (meta == null)
+            {
+                Debug.Log("[QuickGear] No save metadata, using default config.");
+                LoadConfig(DefaultConfigPath);
+                return;
+            }
+
+            string slotPath = SlotConfigPath(meta.Slot);
+            if (!File.Exists(slotPath))
+            {
+                // Copy default config to slot config
+                string defaultJson = File.ReadAllText(DefaultConfigPath);
+                File.WriteAllText(slotPath, defaultJson);
+                Debug.Log($"[QuickGear] Created slot {meta.Slot} config from default.");
+            }
+
+            LoadConfig(slotPath);
+            Debug.Log($"[QuickGear] Loaded slot {meta.Slot} config.");
+        }
+
+        private static void EnsureDefaultConfig()
         {
             try
             {
-                string path = ConfigPath;
+                string path = DefaultConfigPath;
                 string dir = Path.GetDirectoryName(path);
 
                 if (!Directory.Exists(dir))
@@ -79,18 +113,22 @@ namespace QuasimorphHelloWorld
                     File.WriteAllText(path, defaultJson);
                     Debug.Log("[QuickGear] Created default config at: " + path);
                 }
-                else
-                {
-                    string json = File.ReadAllText(path);
 
-                    _config = JsonConvert.DeserializeObject<ModConfig>(json);
-                    Debug.Log("[QuickGear] Loaded config from: " + path);
-                    Debug.Log("[QuickGear] JSON contents: " + json);
-                    Debug.Log(
-                        "[QuickGear] Config contents: "
-                            + JsonConvert.SerializeObject(_config, Formatting.Indented)
-                    );
-                }
+                LoadConfig(path);
+            }
+            catch (Exception e)
+            {
+                Debug.Log("[QuickGear] Failed to ensure default config. Error: " + e.Message);
+            }
+        }
+
+        private static void LoadConfig(string path)
+        {
+            try
+            {
+                string json = File.ReadAllText(path);
+                _config = JsonConvert.DeserializeObject<ModConfig>(json);
+                Debug.Log("[QuickGear] Loaded config from: " + path);
 
                 if (!Enum.TryParse<KeyCode>(_config.HotkeyCode, out _hotkey))
                 {
@@ -122,25 +160,66 @@ namespace QuasimorphHelloWorld
                 Debug.Log("[QuickGear] State not ready.");
                 return;
             }
+
             Debug.Log(
                 "[QuickGear] Running quick gear. Config contents: "
                     + JsonConvert.SerializeObject(_config, Formatting.Indented)
             );
 
+            Mercenary selectedMerc = GetSelectedMerc();
+
             foreach (ModConfig.ItemEntry entry in _config.Items)
             {
-                PullFromCargo(cargo, mercenaries, entry.ItemId, entry.Count);
+                if (selectedMerc != null)
+                {
+                    PullFromCargo(
+                        cargo,
+                        new List<Mercenary> { selectedMerc },
+                        entry.ItemId,
+                        entry.Count
+                    );
+                }
+                else
+                {
+                    PullFromCargo(cargo, mercenaries.Values, entry.ItemId, entry.Count);
+                }
             }
+        }
+
+        private static Mercenary GetSelectedMerc()
+        {
+            if (!UI.IsShowing<ArsenalScreen>())
+            {
+                return null;
+            }
+
+            ArsenalScreen screen = UI.Get<ArsenalScreen>();
+            if (screen == null)
+            {
+                return null;
+            }
+
+            System.Reflection.FieldInfo field = typeof(ArsenalScreen).GetField(
+                "_merc",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance
+            );
+
+            if (field == null)
+            {
+                return null;
+            }
+
+            return field.GetValue(screen) as Mercenary;
         }
 
         private static void PullFromCargo(
             MagnumCargo cargo,
-            Mercenaries mercenaries,
+            List<Mercenary> mercs,
             string itemId,
             int countPerMerc
         )
         {
-            foreach (Mercenary merc in mercenaries.Values)
+            foreach (Mercenary merc in mercs)
             {
                 int current = CountItemsInInventory(merc, itemId);
                 int needed = countPerMerc - current;
