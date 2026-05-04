@@ -9,10 +9,19 @@
     ".NETStandard,Version=v2.1/": {
       "Quasimorph_QuickGear/1.0.0": {
         "dependencies": {
+          "Lib.Harmony": "2.2.2",
           "Newtonsoft.Json": "13.0.3"
         },
         "runtime": {
           "Quasimorph_QuickGear.dll": {}
+        }
+      },
+      "Lib.Harmony/2.2.2": {
+        "runtime": {
+          "lib/net45/0Harmony.dll": {
+            "assemblyVersion": "2.2.2.0",
+            "fileVersion": "2.2.2.0"
+          }
         }
       },
       "Newtonsoft.Json/13.0.3": {
@@ -30,6 +39,13 @@
       "type": "project",
       "serviceable": false,
       "sha512": ""
+    },
+    "Lib.Harmony/2.2.2": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-70KvWz+DiUELxafsYL/LHxA/jH3PDWeApLo/VwtnrpTvRWQ/eUdPfS/l5funmhZWOy41QXw6UjVv+6C57Nx77A==",
+      "path": "lib.harmony/2.2.2",
+      "hashPath": "lib.harmony.2.2.2.nupkg.sha512"
     },
     "Newtonsoft.Json/13.0.3": {
       "type": "package",
