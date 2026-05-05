@@ -517,18 +517,42 @@ namespace QuasimorphHelloWorld
                 if (sourceItem == null)
                     break;
 
-                BasePickupItem newItem =
-                    SingletonMonoBehaviour<ItemFactory>.Instance.CreateForInventory(itemId);
-                newItem.StackCount = (short)toPull;
+                BasePickupItem itemToMove;
+                bool usedSourceItem = false;
+                bool sourceItemRemovedFromCargo = false;
 
-                sourceItem.StackCount -= (short)toPull;
-                if (sourceItem.StackCount <= 0)
+                if (sourceItem.IsStackable && sourceItem.StackCount > toPull)
                 {
+                    itemToMove = SingletonMonoBehaviour<ItemFactory>.Instance.CreateForInventory(
+                        itemId
+                    );
+                    itemToMove.StackCount = (short)toPull;
+                    if (sourceItem.IsUsable)
+                    {
+                        sourceItem
+                            .Comp<UsableItemComponent>()
+                            .SplitItem(itemToMove.Comp<UsableItemComponent>(), toPull);
+                    }
+                    sourceItem.StackCount -= (short)toPull;
+                    if (sourceItem.StackCount <= 0)
+                    {
+                        sourceTab.Remove(sourceItem);
+                        sourceItemRemovedFromCargo = true;
+                    }
+                }
+                else
+                {
+                    itemToMove = sourceItem;
+                    usedSourceItem = true;
                     sourceTab.Remove(sourceItem);
+                    sourceItemRemovedFromCargo = true;
                 }
 
                 if (
-                    merc.CreatureData.Inventory.BackpackStore.TryPutItem(newItem, CellPosition.Zero)
+                    merc.CreatureData.Inventory.BackpackStore.TryPutItem(
+                        itemToMove,
+                        CellPosition.Zero
+                    )
                 )
                 {
                     Debug.Log($"[QuickGear] Moved {toPull}x {itemId} to {merc.ProfileId}");
@@ -538,10 +562,17 @@ namespace QuasimorphHelloWorld
                     Debug.Log(
                         $"[QuickGear] No space in {merc.ProfileId} backpack, returning to cargo."
                     );
-                    sourceItem.StackCount += (short)toPull;
-                    if (!sourceTab.Items.Contains(sourceItem))
+                    if (usedSourceItem)
                     {
                         sourceTab.AddItemAndReshuffleOptional(sourceItem);
+                    }
+                    else
+                    {
+                        sourceItem.StackCount += (short)toPull;
+                        if (sourceItemRemovedFromCargo && !sourceTab.Items.Contains(sourceItem))
+                        {
+                            sourceTab.AddItemAndReshuffleOptional(sourceItem);
+                        }
                     }
                 }
             }
