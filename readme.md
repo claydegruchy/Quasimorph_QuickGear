@@ -1,12 +1,16 @@
-This mod lets you automatically add selected items to mercs easily, for example to restock medkits or smokes.
+This mod lets you automatically add selected items to mercs easily, as well as quickly requip gear previously worn by the merc.
 
-[h2]How it works[/h2]
+[h2]Quick Equip basics items[/h2]
 
 You define a list of items you want  a merc to get, then press G (by default) and the mod attempts to automatically add those items to the currently selected merc’s inventory. If no merc is selected, it will attempt to add the items to EVERY merc.
 
 You can change what is added in the config, by default it attempts to give everyone: 
 2 military medkits 
 A bottle of water.
+
+
+[h2]Quick Equip previous items[/h2]
+Each time you go on a mission, your mercs equipped gear (including implants and limbs) is saved. Double press G to quickly requip that gear. 
 
 
 [h2]Setting the items / Config[/h2]
