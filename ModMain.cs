@@ -143,15 +143,28 @@ namespace QuasimorphHelloWorld
         }
 
         private static float _lastHotkeyPressTime = -1f;
+        private static bool _pendingQuickEquip = false;
+        private static Mercenary _pendingQuickEquipMerc;
+        private const float DoublePressWindow = 0.5f;
 
         [Hook(ModHookType.SpaceUpdateAfterGameLoop)]
         public static void OnSpaceUpdate(IModContext context)
         {
-            if (!Input.GetKeyDown(_hotkey))
-                return;
-
             float now = Time.time;
-            bool isDoublePress = (_lastHotkeyPressTime > 0f) && (now - _lastHotkeyPressTime < 0.5f);
+            if (!Input.GetKeyDown(_hotkey))
+            {
+                if (_pendingQuickEquip && now - _lastHotkeyPressTime >= DoublePressWindow)
+                {
+                    _pendingQuickEquip = false;
+                    if (_pendingQuickEquipMerc != null)
+                    {
+                        Debug.Log("[QuickGear] Single hotkey press confirmed. Running quick equip.");
+                        EquipQuickGear(_pendingQuickEquipMerc);
+                        _pendingQuickEquipMerc = null;
+                    }
+                }
+                return;
+            }
 
             Mercenary selectedMerc = GetSelectedMerc();
             if (selectedMerc == null)
@@ -160,30 +173,34 @@ namespace QuasimorphHelloWorld
                 return;
             }
 
-            Debug.Log("[QuickGear] Selected merc: " + selectedMerc.ProfileId);
+            bool isDoublePress = _pendingQuickEquip
+                && _pendingQuickEquipMerc == selectedMerc
+                && (now - _lastHotkeyPressTime < DoublePressWindow);
 
             if (isDoublePress)
             {
                 Debug.Log("[QuickGear] Hotkey double-pressed. Equipping saved gear.");
-                _lastHotkeyPressTime = -1f;
-
-                if (HasSavedEquipment(selectedMerc))
-                {
-                    LoadSavedEquipment(selectedMerc);
-                }
-                else
-                {
-                    Debug.Log("[QuickGear] No saved equipment for selected merc.");
-                }
-
+                _pendingQuickEquip = false;
+                _pendingQuickEquipMerc = null;
+                LoadSavedEquipment(selectedMerc);
                 return;
             }
 
+            if (_pendingQuickEquip && now - _lastHotkeyPressTime >= DoublePressWindow)
+            {
+                _pendingQuickEquip = false;
+                if (_pendingQuickEquipMerc != null)
+                {
+                    Debug.Log("[QuickGear] Previous single press timeout expired. Running quick equip.");
+                    EquipQuickGear(_pendingQuickEquipMerc);
+                    _pendingQuickEquipMerc = null;
+                }
+            }
+
+            _pendingQuickEquip = true;
+            _pendingQuickEquipMerc = selectedMerc;
             _lastHotkeyPressTime = now;
-
-            Debug.Log("[QuickGear] Hotkey single-pressed. Quick equipping configured items.");
-
-            EquipQuickGear(selectedMerc);
+            Debug.Log("[QuickGear] Hotkey pressed. Waiting for second press to determine action.");
         }
 
         private static void LoadConfig(string path)
@@ -225,11 +242,13 @@ namespace QuasimorphHelloWorld
 
         public static void SaveEquipment(Mercenary merc)
         {
-            string profileId = merc.ProfileId;
+            string profileId = NormalizeProfileId(merc.ProfileId);
             var savedEquip = new ModConfig.SavedEquipment();
             var inventory = merc.CreatureData.Inventory;
 
             // Save equipment slots
+            if (inventory.BackpackSlot.First != null)
+                savedEquip.Equipment["Backpack"] = inventory.BackpackSlot.First.Id;
             if (inventory.PrimarySlot.First != null)
                 savedEquip.Equipment["Primary"] = inventory.PrimarySlot.First.Id;
             if (inventory.SecondarySlot.First != null)
@@ -246,8 +265,6 @@ namespace QuasimorphHelloWorld
                 savedEquip.Equipment["Leggings"] = inventory.LeggingsSlot.First.Id;
             if (inventory.BootsSlot.First != null)
                 savedEquip.Equipment["Boots"] = inventory.BootsSlot.First.Id;
-            if (inventory.BackpackSlot.First != null)
-                savedEquip.Equipment["Backpack"] = inventory.BackpackSlot.First.Id;
             if (inventory.VestSlot.First != null)
                 savedEquip.Equipment["Vest"] = inventory.VestSlot.First.Id;
 
@@ -303,17 +320,37 @@ namespace QuasimorphHelloWorld
         public static void LoadSavedEquipment(Mercenary merc)
         {
             string profileId = merc.ProfileId;
-            if (!_config.SavedEquipmentHistory.TryGetValue(profileId, out var savedEquip))
+            if (!TryGetSavedEquipment(profileId, out var savedEquip))
             {
                 Debug.Log($"[QuickGear] No saved equipment for {profileId}");
                 return;
             }
 
             var inventory = merc.CreatureData.Inventory;
+            UnequipAllEquipment(merc);
             var allItems = inventory.AllContainers.SelectMany(c => c.Items).ToList();
             var magnumCargo = _modContext.State.Get<MagnumCargo>();
+            if (magnumCargo == null)
+            {
+                Debug.Log("[QuickGear] No magnum cargo available for saved equipment load.");
+                return;
+            }
+
             var shipCargoItems = magnumCargo.ShipCargo.SelectMany(c => c.Items).ToList();
             var perkFactory = _modContext.State.Get<PerkFactory>();
+
+            if (magnumCargo.ShipCargo.Count > 0)
+            {
+                AugmentationSystem.RemoveAllAugmentationsAndImplants(
+                    merc,
+                    magnumCargo.ShipCargo[0]
+                );
+                shipCargoItems = magnumCargo.ShipCargo.SelectMany(c => c.Items).ToList();
+            }
+            else
+            {
+                Debug.Log("[QuickGear] No magnum cargo available to clear implants and limbs.");
+            }
 
             List<string> missingItems = new List<string>();
             List<string> failedLimbs = new List<string>();
@@ -325,7 +362,25 @@ namespace QuasimorphHelloWorld
                 string woundSlotId = kvp.Key;
                 string augId = kvp.Value;
 
-                // Remove existing augmentation if different
+                var limbItem = allItems.FirstOrDefault(i => i.Id == augId);
+                if (limbItem == null)
+                {
+                    limbItem = shipCargoItems.FirstOrDefault(i => i.Id == augId);
+                    if (limbItem != null)
+                    {
+                        PullFromCargo(magnumCargo, new List<Mercenary> { merc }, augId, 1);
+                        allItems = inventory.AllContainers.SelectMany(c => c.Items).ToList();
+                        shipCargoItems = magnumCargo.ShipCargo.SelectMany(c => c.Items).ToList();
+                        limbItem = allItems.FirstOrDefault(i => i.Id == augId);
+                    }
+                }
+
+                if (limbItem == null)
+                {
+                    missingItems.Add(augId);
+                    continue;
+                }
+
                 if (
                     merc.CreatureData.AugmentationMap.TryGetValue(woundSlotId, out var existingAug)
                     && existingAug != augId
@@ -339,10 +394,14 @@ namespace QuasimorphHelloWorld
                     );
                 }
 
-                // Try to apply the augmentation
                 if (!AugmentationSystem.TryApplyGeneratedAugmentation(merc.CreatureData, augId))
                 {
                     failedLimbs.Add($"{woundSlotId}:{augId}");
+                }
+                else
+                {
+                    RemoveItemFromInventory(inventory, limbItem);
+                    allItems = inventory.AllContainers.SelectMany(c => c.Items).ToList();
                 }
             }
 
@@ -352,6 +411,25 @@ namespace QuasimorphHelloWorld
                 string woundSlotId = kvp.Key;
                 foreach (string implantId in kvp.Value)
                 {
+                    var implantItem = allItems.FirstOrDefault(i => i.Id == implantId);
+                    if (implantItem == null)
+                    {
+                        implantItem = shipCargoItems.FirstOrDefault(i => i.Id == implantId);
+                        if (implantItem != null)
+                        {
+                            PullFromCargo(magnumCargo, new List<Mercenary> { merc }, implantId, 1);
+                            allItems = inventory.AllContainers.SelectMany(c => c.Items).ToList();
+                            shipCargoItems = magnumCargo.ShipCargo.SelectMany(c => c.Items).ToList();
+                            implantItem = allItems.FirstOrDefault(i => i.Id == implantId);
+                        }
+                    }
+
+                    if (implantItem == null)
+                    {
+                        missingItems.Add(implantId);
+                        continue;
+                    }
+
                     if (
                         !AugmentationSystem.TryApplyGeneratedImplant(
                             perkFactory,
@@ -362,6 +440,11 @@ namespace QuasimorphHelloWorld
                     {
                         failedImplants.Add($"{woundSlotId}:{implantId}");
                     }
+                    else
+                    {
+                        RemoveItemFromInventory(inventory, implantItem);
+                        allItems = inventory.AllContainers.SelectMany(c => c.Items).ToList();
+                    }
                 }
             }
 
@@ -371,18 +454,15 @@ namespace QuasimorphHelloWorld
                 string slotName = kvp.Key;
                 string itemId = kvp.Value;
 
-                // First try from inventory
                 var item = allItems.FirstOrDefault(i => i.Id == itemId);
                 if (item == null)
                 {
-                    // Try from cargo
                     item = shipCargoItems.FirstOrDefault(i => i.Id == itemId);
                     if (item != null)
                     {
-                        // Move from cargo to inventory
                         PullFromCargo(magnumCargo, new List<Mercenary> { merc }, itemId, 1);
-                        // Refresh items list
                         allItems = inventory.AllContainers.SelectMany(c => c.Items).ToList();
+                        shipCargoItems = magnumCargo.ShipCargo.SelectMany(c => c.Items).ToList();
                         item = allItems.FirstOrDefault(i => i.Id == itemId);
                     }
                 }
@@ -396,12 +476,10 @@ namespace QuasimorphHelloWorld
                 ItemStorage slot = GetSlotByName(inventory, slotName);
                 if (slot != null)
                 {
-                    // Try to equip the item
                     inventory.TakeOrEquip(item, putIfSlotBusy: true);
                 }
             }
 
-            // Configure implicit effects after changes
             AugmentationSystem.ConfigureImplicitEffects(merc.CreatureData);
 
             if (failedLimbs.Any() || failedImplants.Any() || missingItems.Any())
@@ -414,7 +492,6 @@ namespace QuasimorphHelloWorld
                 if (missingItems.Any())
                     message += $"Missing items: {string.Join(", ", missingItems)}";
                 Debug.Log($"[QuickGear] {message}");
-                // TODO: Show UI warning
             }
 
             Debug.Log($"[QuickGear] Loaded saved equipment for {profileId}");
@@ -422,7 +499,39 @@ namespace QuasimorphHelloWorld
 
         public static bool HasSavedEquipment(Mercenary merc)
         {
-            return _config.SavedEquipmentHistory.ContainsKey(merc.ProfileId);
+            return TryGetSavedEquipment(merc.ProfileId, out _);
+        }
+
+        private static bool TryGetSavedEquipment(string profileId, out ModConfig.SavedEquipment savedEquip)
+        {
+            if (_config.SavedEquipmentHistory.TryGetValue(profileId, out savedEquip))
+            {
+                Debug.Log($"[QuickGear] Found saved equipment for exact key: {profileId}");
+                return true;
+            }
+
+            string normalized = NormalizeProfileId(profileId);
+            Debug.Log($"[QuickGear] Normalized {profileId} to {normalized}");
+            Debug.Log($"[QuickGear] Available keys: {string.Join(", ", _config.SavedEquipmentHistory.Keys)}");
+            
+            if (normalized != profileId && _config.SavedEquipmentHistory.TryGetValue(normalized, out savedEquip))
+            {
+                Debug.Log($"[QuickGear] Found saved equipment for normalized key: {normalized}");
+                return true;
+            }
+
+            Debug.Log($"[QuickGear] No saved equipment found for {profileId} (normalized: {normalized})");
+            return false;
+        }
+
+        private static string NormalizeProfileId(string profileId)
+        {
+            if (string.IsNullOrEmpty(profileId))
+                return profileId;
+
+            return profileId.EndsWith("_custom")
+                ? profileId.Substring(0, profileId.Length - "_custom".Length)
+                : profileId;
         }
 
         private static ItemStorage GetSlotByName(Inventory inventory, string slotName)
@@ -596,6 +705,39 @@ namespace QuasimorphHelloWorld
                 count += tab.CountItems(itemId);
             }
             return count;
+        }
+
+        private static void UnequipAllEquipment(Mercenary merc)
+        {
+            Inventory inventory = merc.CreatureData.Inventory;
+            foreach (ItemStorage slot in inventory.Slots)
+            {
+                if (slot == inventory.BareHandsSlot || slot == inventory.ArmStumpSlot)
+                {
+                    continue;
+                }
+
+                List<BasePickupItem> slotItems = slot.Items.ToList();
+                foreach (BasePickupItem item in slotItems)
+                {
+                    if (!inventory.Unequip(item))
+                    {
+                        Debug.Log($"[QuickGear] Failed to unequip {item.Id} from {slot.Source}.");
+                    }
+                }
+            }
+        }
+
+        private static void RemoveItemFromInventory(Inventory inventory, BasePickupItem item)
+        {
+            foreach (ItemStorage container in inventory.AllContainers)
+            {
+                if (container.Items.Contains(item))
+                {
+                    container.Remove(item);
+                    return;
+                }
+            }
         }
 
         [HarmonyPatch(typeof(SpaceGameMode), "StartMission")]
