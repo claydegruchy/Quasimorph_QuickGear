@@ -5,6 +5,7 @@ using System.Linq;
 using MGSC;
 using Newtonsoft.Json;
 using UnityEngine;
+using UnityEngine.UI;
 using HarmonyLib;
 
 namespace QuasimorphHelloWorld
@@ -85,6 +86,12 @@ namespace QuasimorphHelloWorld
             );
             _harmony.PatchAll();
             EnsureDefaultConfig();
+        }
+
+        [Hook(ModHookType.MainMenuStarted)]
+        public static void OnMainMenuStarted(IModContext context)
+        {
+            Debug.Log("[QuickGear] Main menu started. Auto-load is disabled to avoid runtime crashes.");
         }
 
         [Hook(ModHookType.AfterSaveLoaded)]
@@ -777,25 +784,167 @@ namespace QuasimorphHelloWorld
                         "[QuickGear] ArsenalScreen.Configure called for: " + mercenary.ProfileId
                     );
 
-                    // Get the back button using Traverse (same pattern as QM_CloneSort)
-                    CommonButton backButton = Traverse
+                    GameObject inventoryWindow = Traverse
                         .Create(__instance)
-                        .Field<CommonButton>("_backButton")
+                        .Field<GameObject>("_inventoryWindow")
                         .Value;
 
-                    if (backButton == null)
-                    {
-                        Debug.Log("[QuickGear] Could not find back button.");
-                        return;
-                    }
+                    Transform parent = (inventoryWindow != null)
+                        ? inventoryWindow.transform
+                        : __instance.transform;
 
-                    // No UI buttons are instantiated here anymore. Hotkey handling is moved to OnSpaceUpdate.
+                    var existingButton = parent.Find("QuickRestockButton");
+                    if (existingButton != null)
+                        return;
+
+                    Debug.Log(
+                        "[QuickGear] Creating QuickRestockButtons in ArsenalScreen under "
+                            + parent.name
+                    );
+
+                    // Create three smaller buttons (25% of previous size) in top-right of inventory window
+                    // Place buttons at the parent-local coordinates you provided (no snapping)
+                    // Base parent-local point reported: (196.3, 122.8)
+                    Vector2 baseLocal = new Vector2(196.3f, 122.8f);
+
+                    CreateQuickGearButton(
+                        parent,
+                        "QuickRestockButton",
+                        "Quick Restock",
+                        baseLocal + new Vector2(0f, 0f),
+                        40f,
+                        16f,
+                        () =>
+                        {
+                            try
+                            {
+                                ModMain.EquipQuickGear(mercenary);
+                            }
+                            catch (Exception e)
+                            {
+                                Debug.Log("[QuickGear] Error running Quick Restock: " + e.Message);
+                            }
+                        }
+                    );
+
+                    CreateQuickGearButton(
+                        parent,
+                        "LoadSavedEquipmentButton",
+                        "Load Saved Equipment",
+                        baseLocal + new Vector2(46f, 0f),
+                        40f,
+                        16f,
+                        () =>
+                        {
+                            try
+                            {
+                                Debug.Log("[QuickGear] Load Saved Equipment clicked: loading saved equipment.");
+                                ModMain.LoadSavedEquipment(mercenary);
+                            }
+                            catch (Exception e)
+                            {
+                                Debug.Log("[QuickGear] Error loading saved equipment: " + e.Message);
+                            }
+                        }
+                    );
+
+                    CreateQuickGearButton(
+                        parent,
+                        "SaveEquipmentButton",
+                        "Save Equipment",
+                        baseLocal + new Vector2(92f, 0f),
+                        40f,
+                        16f,
+                        () =>
+                        {
+                            try
+                            {
+                                Debug.Log("[QuickGear] Save Equipment clicked: saving equipment.");
+                                ModMain.SaveEquipment(mercenary);
+                            }
+                            catch (Exception e)
+                            {
+                                Debug.Log("[QuickGear] Error saving equipment: " + e.Message);
+                            }
+                        }
+                    );
                 }
                 catch (Exception e)
                 {
                     Debug.Log("[QuickGear] Exception in ArsenalScreen patch: " + e.Message);
                     Debug.Log("[QuickGear] " + e.StackTrace);
                 }
+            }
+
+            private static void CreateQuickGearButton(
+                Transform parent,
+                string objectName,
+                string label,
+                Vector2 anchoredPosition,
+                float width,
+                float height,
+                Action onClick
+            )
+            {
+                if (parent.Find(objectName) != null)
+                    return;
+
+                var buttonObj = new GameObject(
+                    objectName,
+                    typeof(RectTransform),
+                    typeof(CanvasRenderer),
+                    typeof(Image),
+                    typeof(Button)
+                );
+                buttonObj.layer = LayerMask.NameToLayer("UI");
+                buttonObj.transform.SetParent(parent, false);
+
+                var rect = buttonObj.GetComponent<RectTransform>();
+                // Use center anchoring so parent-local coordinates (from debug) map correctly
+                rect.anchorMin = new Vector2(0.5f, 0.5f);
+                rect.anchorMax = new Vector2(0.5f, 0.5f);
+                rect.pivot = new Vector2(0.5f, 0.5f);
+                rect.anchoredPosition = anchoredPosition;
+                rect.sizeDelta = new Vector2(width, height);
+                rect.localScale = Vector3.one;
+
+                var img = buttonObj.GetComponent<Image>();
+                img.color = new Color(0.12f, 0.56f, 0.9f, 0.95f);
+                img.type = Image.Type.Sliced;
+                img.raycastTarget = true;
+
+                var button = buttonObj.GetComponent<Button>();
+                button.targetGraphic = img;
+                if (onClick != null)
+                {
+                    button.onClick.AddListener(() => onClick());
+                }
+
+                var captionObj = new GameObject(
+                    "Caption",
+                    typeof(RectTransform),
+                    typeof(CanvasRenderer),
+                    typeof(Text)
+                );
+                captionObj.transform.SetParent(buttonObj.transform, false);
+                captionObj.layer = buttonObj.layer;
+                var captionRect = captionObj.GetComponent<RectTransform>();
+                captionRect.anchorMin = Vector2.zero;
+                captionRect.anchorMax = Vector2.one;
+                captionRect.offsetMin = new Vector2(4f, 4f);
+                captionRect.offsetMax = new Vector2(-4f, -4f);
+
+                var txt = captionObj.GetComponent<Text>();
+                txt.text = label;
+                txt.alignment = TextAnchor.MiddleCenter;
+                txt.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+                txt.color = Color.white;
+                // Keep text simple and small per user preference
+                txt.resizeTextForBestFit = false;
+                txt.fontSize = 3;
+                txt.raycastTarget = false;
+
+                // No persistent mouse logging — debug removed to reduce log spam
             }
 
             private static void ClearHotkey(CommonButton button)
@@ -826,6 +975,8 @@ namespace QuasimorphHelloWorld
 
                 Traverse.Create(hotkeyButton).Field("_keyId").SetValue(string.Empty);
             }
+
+            // QuickGearDebug removed — no runtime mouse logging to avoid log spam
 
             private static void RepositionButton(
                 CommonButton button,
