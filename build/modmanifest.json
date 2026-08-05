@@ -2,5 +2,5 @@
   "UniqueModName": "QuickGear",
   "Assemblies": ["Quasimorph_QuickGear.dll"],
   "Dependencies": [],
-  "SteamTags": ["Quality of Life","0.9.9"]
+  "SteamTags": ["Quality of Life","1.0"]
 }

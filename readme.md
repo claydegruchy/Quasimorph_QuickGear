@@ -1,54 +1,48 @@
-This mod lets you automatically add selected items to mercs easily, for example to restock medkits or smokes.
+This mod adds Save Loadout and Load Loadout buttons to the equipment screen that let you quickly equip sets of items to a merc or restock selected items easily.
 
-[h2]How it works[/h2]
-
-You define a list of items you want  a merc to get, then press G (by default) and the mod attempts to automatically add those items to the currently selected merc’s inventory. If no merc is selected, it will attempt to add the items to EVERY merc.
-
-You can change what is added in the config, by default it attempts to give everyone: 
-2 military medkits 
-A bottle of water.
+With this mod you can:
+- Restock medkits and smokes quickly.
+- Put your melee merc back togeher after their 25th death.
+- Requip implants to your cyborg superhuman are a gory meeting with Shedu's Thousand.
 
 
-[h2]Setting the items / Config[/h2]
+[h2]Setting the items[/h2]
+[h3]Saving a mercenary loadout[/h3]
+Select a merc and hit Save Loadout to save whatever that merc is wearing (including limbs and implants). This loadout is not shared between mercs.
+[h3]Updating the Quick Restock items[/h3]
+Select a merc and hit Update Quick Restock to save the current inventory items into the quick restock configuration. This config is shared between all mercs.
 
-The config should be at 
+Not that everything in the invetory will be saved (including belt slots). 
+
+[h2]Loading items[/h2]
+[h3]Equipping a mercenary loadout[/h3]
+After you've saved a loadout, just hit the Load equipment button to have your merc automatically equip those items from the ship inventory. 
+
+[h3]Equipping Quick Restock items[/h3]
+Hit Quick Restock to add the items to the inventory, if you find some are not equipping it's likely that there aren't any left on board the ship.
+
+By default it'll equip 
+- 2 military medkits 
+- A bottle of water.
+
+
+[h2]Per Save Config[/h2]
+Each save slot also has its own config but you can copy them between each save in the mod config (requires editing files, see Editing the config manually)
+
+[h2]Editing the config manually[/h2]
+If you want you can edit the config yourself. The config should be at 
 [code]%appdata%\..\LocalLow\Magnum Scriptum LTD\Quasimorph_ModConfigs\QuickGear\config.json[/code]
 
 For me thats 
 [code]C:\Users\ME\AppData\LocalLow\Magnum Scriptum LTD\Quasimorph_ModConfigs\QuickGear\config.json[/code]
 
-You can set the items you want in there as well as the hotkey for the mod (Default G)
+You can set the items you want in there as well as the hotkey for the mod (Default G).
 
-
-
-[h3]Per Save Config[/h3]
-Each save slot also has its own config, you can find it in the same directory.
-
-[h3]Premade settings[/h3]
-
-Not everyone is big on playing around in files (who tf is jason) so heres some presets/examples that can be pasted directly into config.json:
-
-
-2 military medkits and a bottle of water
-  [code]{"Items":[{"ItemId":"medical_kit_2","Count":2},{"ItemId":"water_bottle_1","Count":1}],"HotkeyCode":"G"}[/code]
-2 normal medkits and 2 packets of smokes
-  [code]{"Items":[{"ItemId":"medical_kit_1","Count":2},{"ItemId":"cigarettes_1","Count":2}],"HotkeyCode":"G"}[/code]
-1 set of antibiotics, 3 bandages, and 3 splits
-  [code]{"Items":[{"ItemId":"pills_antibiotics","Count":1},{"ItemId":"bandage","Count":3},{"ItemId":"splint","Count":3}],"HotkeyCode":"G"}[/code]
-
-
-The config uses the games internal names for items, you can find them on the wiki.
-
-[h2]Issues[/h2]
-
-Why can’t I just make it work for my currently selected merc? Why does it have to give items to everyone?
-Limit of the game and my own ability. I couldn’t find a way to see what the currently selected merc is so it just gives them to everyone.
+The item names can be found on the wiki.
 
 
 [h2]Why did I make this[/h2]
-
 I made this as I suck and keep dying, and I’m sick of requipping the same setup: Bantages, Splints, Medpacks, etc
-
 
 If you want to change something, the repo is here:
 [url=github.com/claydegruchy/Quasimorph_QuickGear] Github [/url]

@@ -5,6 +5,7 @@ using System.Linq;
 using MGSC;
 using Newtonsoft.Json;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 using HarmonyLib;
 
@@ -91,7 +92,9 @@ namespace QuasimorphHelloWorld
         [Hook(ModHookType.MainMenuStarted)]
         public static void OnMainMenuStarted(IModContext context)
         {
-            Debug.Log("[QuickGear] Main menu started. Auto-load is disabled to avoid runtime crashes.");
+            Debug.Log(
+                "[QuickGear] Main menu started. Auto-load is disabled to avoid runtime crashes."
+            );
         }
 
         [Hook(ModHookType.AfterSaveLoaded)]
@@ -165,7 +168,9 @@ namespace QuasimorphHelloWorld
                     _pendingQuickEquip = false;
                     if (_pendingQuickEquipMerc != null)
                     {
-                        Debug.Log("[QuickGear] Single hotkey press confirmed. Running quick equip.");
+                        Debug.Log(
+                            "[QuickGear] Single hotkey press confirmed. Running quick equip."
+                        );
                         EquipQuickGear(_pendingQuickEquipMerc);
                         _pendingQuickEquipMerc = null;
                     }
@@ -180,7 +185,8 @@ namespace QuasimorphHelloWorld
                 return;
             }
 
-            bool isDoublePress = _pendingQuickEquip
+            bool isDoublePress =
+                _pendingQuickEquip
                 && _pendingQuickEquipMerc == selectedMerc
                 && (now - _lastHotkeyPressTime < DoublePressWindow);
 
@@ -198,7 +204,9 @@ namespace QuasimorphHelloWorld
                 _pendingQuickEquip = false;
                 if (_pendingQuickEquipMerc != null)
                 {
-                    Debug.Log("[QuickGear] Previous single press timeout expired. Running quick equip.");
+                    Debug.Log(
+                        "[QuickGear] Previous single press timeout expired. Running quick equip."
+                    );
                     EquipQuickGear(_pendingQuickEquipMerc);
                     _pendingQuickEquipMerc = null;
                 }
@@ -249,9 +257,12 @@ namespace QuasimorphHelloWorld
 
         public static void SaveEquipment(Mercenary merc)
         {
-            string profileId = NormalizeProfileId(merc.ProfileId);
+            string profileId = merc.ProfileId;
             var savedEquip = new ModConfig.SavedEquipment();
             var inventory = merc.CreatureData.Inventory;
+
+            Debug.Log($"[QuickGear] Saving equipment for profileId={profileId} (raw profile key).");
+            Debug.Log($"[QuickGear] Current save slot: {_currentSlot}");
 
             // Save equipment slots
             if (inventory.BackpackSlot.First != null)
@@ -324,6 +335,56 @@ namespace QuasimorphHelloWorld
             }
         }
 
+        public static void SaveInventoryQuickGear(Mercenary merc)
+        {
+            if (merc == null)
+            {
+                Debug.Log("[QuickGear] No merc provided for inventory save.");
+                return;
+            }
+
+            var inventory = merc.CreatureData.Inventory;
+            if (inventory == null)
+            {
+                Debug.Log("[QuickGear] Merc inventory is null.");
+                return;
+            }
+
+            Dictionary<string, int> counts = new Dictionary<string, int>(
+                StringComparer.OrdinalIgnoreCase
+            );
+            foreach (ItemStorage storage in inventory.Storages)
+            {
+                if (storage == null)
+                    continue;
+
+                foreach (BasePickupItem item in storage.Items)
+                {
+                    if (item == null)
+                        continue;
+
+                    int itemCount = (item.IsStackable ? item.StackCount : 1);
+                    if (counts.ContainsKey(item.Id))
+                    {
+                        counts[item.Id] += itemCount;
+                    }
+                    else
+                    {
+                        counts[item.Id] = itemCount;
+                    }
+                }
+            }
+
+            _config.Items = counts
+                .Select(kvp => new ModConfig.ItemEntry { ItemId = kvp.Key, Count = kvp.Value })
+                .ToList();
+
+            SaveConfig();
+            Debug.Log(
+                $"[QuickGear] Saved {counts.Count} inventory item types to quick equip config."
+            );
+        }
+
         public static void LoadSavedEquipment(Mercenary merc)
         {
             string profileId = merc.ProfileId;
@@ -333,9 +394,11 @@ namespace QuasimorphHelloWorld
                 return;
             }
 
+            Debug.Log(
+                $"[QuickGear] LoadSavedEquipment for {profileId}: equipment={savedEquip.Equipment.Count}, limbs={savedEquip.Limbs.Count}, implants={savedEquip.Implants.Values.Sum(list => list?.Count ?? 0)}"
+            );
+
             var inventory = merc.CreatureData.Inventory;
-            UnequipAllEquipment(merc);
-            var allItems = inventory.AllContainers.SelectMany(c => c.Items).ToList();
             var magnumCargo = _modContext.State.Get<MagnumCargo>();
             if (magnumCargo == null)
             {
@@ -343,14 +406,21 @@ namespace QuasimorphHelloWorld
                 return;
             }
 
+            ItemStorage cargoFallback = magnumCargo.ShipCargo.FirstOrDefault();
+            UnequipAllEquipment(merc, cargoFallback);
+
+            var allItems = inventory.AllContainers.SelectMany(c => c.Items).ToList();
+            Debug.Log($"[QuickGear] After unequip, inventory contains {allItems.Count} items.");
             var shipCargoItems = magnumCargo.ShipCargo.SelectMany(c => c.Items).ToList();
+            Debug.Log($"[QuickGear] Ship cargo has {shipCargoItems.Count} items available.");
             var perkFactory = _modContext.State.Get<PerkFactory>();
 
-            if (magnumCargo.ShipCargo.Count > 0)
+            if (cargoFallback != null)
             {
+                Debug.Log("[QuickGear] Clearing augmentations/implants from first ship cargo container.");
                 AugmentationSystem.RemoveAllAugmentationsAndImplants(
                     merc,
-                    magnumCargo.ShipCargo[0]
+                    cargoFallback
                 );
                 shipCargoItems = magnumCargo.ShipCargo.SelectMany(c => c.Items).ToList();
             }
@@ -368,13 +438,17 @@ namespace QuasimorphHelloWorld
             {
                 string woundSlotId = kvp.Key;
                 string augId = kvp.Value;
+                Debug.Log($"[QuickGear] Loading limb {augId} into slot {woundSlotId}.");
 
                 var limbItem = allItems.FirstOrDefault(i => i.Id == augId);
+                bool foundInCargo = false;
                 if (limbItem == null)
                 {
                     limbItem = shipCargoItems.FirstOrDefault(i => i.Id == augId);
                     if (limbItem != null)
                     {
+                        foundInCargo = true;
+                        Debug.Log($"[QuickGear] Limb {augId} found in ship cargo, pulling.");
                         PullFromCargo(magnumCargo, new List<Mercenary> { merc }, augId, 1);
                         allItems = inventory.AllContainers.SelectMany(c => c.Items).ToList();
                         shipCargoItems = magnumCargo.ShipCargo.SelectMany(c => c.Items).ToList();
@@ -384,6 +458,7 @@ namespace QuasimorphHelloWorld
 
                 if (limbItem == null)
                 {
+                    Debug.Log($"[QuickGear] Limb {augId} not found in inventory or cargo.");
                     missingItems.Add(augId);
                     continue;
                 }
@@ -403,10 +478,12 @@ namespace QuasimorphHelloWorld
 
                 if (!AugmentationSystem.TryApplyGeneratedAugmentation(merc.CreatureData, augId))
                 {
+                    Debug.Log($"[QuickGear] Failed to apply limb augmentation {augId} to slot {woundSlotId}.");
                     failedLimbs.Add($"{woundSlotId}:{augId}");
                 }
                 else
                 {
+                    Debug.Log($"[QuickGear] Applied limb augmentation {augId} to slot {woundSlotId}.");
                     RemoveItemFromInventory(inventory, limbItem);
                     allItems = inventory.AllContainers.SelectMany(c => c.Items).ToList();
                 }
@@ -418,21 +495,26 @@ namespace QuasimorphHelloWorld
                 string woundSlotId = kvp.Key;
                 foreach (string implantId in kvp.Value)
                 {
+                    Debug.Log($"[QuickGear] Loading implant {implantId} into slot {woundSlotId}.");
                     var implantItem = allItems.FirstOrDefault(i => i.Id == implantId);
                     if (implantItem == null)
                     {
                         implantItem = shipCargoItems.FirstOrDefault(i => i.Id == implantId);
                         if (implantItem != null)
                         {
+                            Debug.Log($"[QuickGear] Implant {implantId} found in ship cargo, pulling.");
                             PullFromCargo(magnumCargo, new List<Mercenary> { merc }, implantId, 1);
                             allItems = inventory.AllContainers.SelectMany(c => c.Items).ToList();
-                            shipCargoItems = magnumCargo.ShipCargo.SelectMany(c => c.Items).ToList();
+                            shipCargoItems = magnumCargo.ShipCargo
+                                .SelectMany(c => c.Items)
+                                .ToList();
                             implantItem = allItems.FirstOrDefault(i => i.Id == implantId);
                         }
                     }
 
                     if (implantItem == null)
                     {
+                        Debug.Log($"[QuickGear] Implant {implantId} not found in inventory or cargo.");
                         missingItems.Add(implantId);
                         continue;
                     }
@@ -445,10 +527,12 @@ namespace QuasimorphHelloWorld
                         )
                     )
                     {
+                        Debug.Log($"[QuickGear] Failed to apply implant {implantId} to slot {woundSlotId}.");
                         failedImplants.Add($"{woundSlotId}:{implantId}");
                     }
                     else
                     {
+                        Debug.Log($"[QuickGear] Applied implant {implantId} to slot {woundSlotId}.");
                         RemoveItemFromInventory(inventory, implantItem);
                         allItems = inventory.AllContainers.SelectMany(c => c.Items).ToList();
                     }
@@ -460,13 +544,17 @@ namespace QuasimorphHelloWorld
             {
                 string slotName = kvp.Key;
                 string itemId = kvp.Value;
+                Debug.Log($"[QuickGear] Loading equipment {itemId} into slot {slotName}.");
 
                 var item = allItems.FirstOrDefault(i => i.Id == itemId);
+                bool foundInCargo = false;
                 if (item == null)
                 {
                     item = shipCargoItems.FirstOrDefault(i => i.Id == itemId);
                     if (item != null)
                     {
+                        foundInCargo = true;
+                        Debug.Log($"[QuickGear] Equipment {itemId} found in ship cargo, pulling.");
                         PullFromCargo(magnumCargo, new List<Mercenary> { merc }, itemId, 1);
                         allItems = inventory.AllContainers.SelectMany(c => c.Items).ToList();
                         shipCargoItems = magnumCargo.ShipCargo.SelectMany(c => c.Items).ToList();
@@ -476,14 +564,37 @@ namespace QuasimorphHelloWorld
 
                 if (item == null)
                 {
+                    Debug.Log($"[QuickGear] Equipment {itemId} not found in inventory or cargo.");
                     missingItems.Add(itemId);
                     continue;
                 }
 
                 ItemStorage slot = GetSlotByName(inventory, slotName);
-                if (slot != null)
+                if (slot == null)
                 {
-                    inventory.TakeOrEquip(item, putIfSlotBusy: true);
+                    Debug.Log($"[QuickGear] Unknown equipment slot {slotName} for item {itemId}.");
+                    missingItems.Add(itemId);
+                    continue;
+                }
+
+                bool equipped = inventory.TakeOrEquip(item, putIfSlotBusy: true);
+                Debug.Log($"[QuickGear] Equip attempt for {itemId} into {slotName}: {equipped}.");
+                if (!equipped)
+                {
+                    Debug.Log($"[QuickGear] Failed to equip {itemId} into slot {slotName}.");
+                }
+
+                // If the item still exists in ship cargo, remove it to avoid duplicates on repeated loads
+                if (magnumCargo != null)
+                {
+                    foreach (ItemStorage tab in magnumCargo.ShipCargo)
+                    {
+                        if (tab.Items.Contains(item))
+                        {
+                            Debug.Log($"[QuickGear] Removing duplicate {itemId} from ship cargo.");
+                            tab.Remove(item);
+                        }
+                    }
                 }
             }
 
@@ -509,7 +620,10 @@ namespace QuasimorphHelloWorld
             return TryGetSavedEquipment(merc.ProfileId, out _);
         }
 
-        private static bool TryGetSavedEquipment(string profileId, out ModConfig.SavedEquipment savedEquip)
+        private static bool TryGetSavedEquipment(
+            string profileId,
+            out ModConfig.SavedEquipment savedEquip
+        )
         {
             if (_config.SavedEquipmentHistory.TryGetValue(profileId, out savedEquip))
             {
@@ -519,15 +633,22 @@ namespace QuasimorphHelloWorld
 
             string normalized = NormalizeProfileId(profileId);
             Debug.Log($"[QuickGear] Normalized {profileId} to {normalized}");
-            Debug.Log($"[QuickGear] Available keys: {string.Join(", ", _config.SavedEquipmentHistory.Keys)}");
-            
-            if (normalized != profileId && _config.SavedEquipmentHistory.TryGetValue(normalized, out savedEquip))
+            Debug.Log(
+                $"[QuickGear] Available keys: {string.Join(", ", _config.SavedEquipmentHistory.Keys)}"
+            );
+
+            if (
+                normalized != profileId
+                && _config.SavedEquipmentHistory.TryGetValue(normalized, out savedEquip)
+            )
             {
                 Debug.Log($"[QuickGear] Found saved equipment for normalized key: {normalized}");
                 return true;
             }
 
-            Debug.Log($"[QuickGear] No saved equipment found for {profileId} (normalized: {normalized})");
+            Debug.Log(
+                $"[QuickGear] No saved equipment found for {profileId} (normalized: {normalized})"
+            );
             return false;
         }
 
@@ -714,7 +835,7 @@ namespace QuasimorphHelloWorld
             return count;
         }
 
-        private static void UnequipAllEquipment(Mercenary merc)
+        private static void UnequipAllEquipment(Mercenary merc, ItemStorage fallbackStorage = null)
         {
             Inventory inventory = merc.CreatureData.Inventory;
             foreach (ItemStorage slot in inventory.Slots)
@@ -727,9 +848,35 @@ namespace QuasimorphHelloWorld
                 List<BasePickupItem> slotItems = slot.Items.ToList();
                 foreach (BasePickupItem item in slotItems)
                 {
-                    if (!inventory.Unequip(item))
+                    if (fallbackStorage != null)
                     {
-                        Debug.Log($"[QuickGear] Failed to unequip {item.Id} from {slot.Source}.");
+                        item.Storage.Remove(item);
+                        if (!fallbackStorage.TryPutItem(item, CellPosition.Zero))
+                        {
+                            fallbackStorage.AddItemAndReshuffleOptional(item);
+                        }
+
+                        if (!fallbackStorage.Items.Contains(item))
+                        {
+                            Debug.Log(
+                                $"[QuickGear] WARNING: Failed to move {item.Id} into fallback storage {fallbackStorage.Source}."
+                            );
+                        }
+                        else
+                        {
+                            Debug.Log(
+                                $"[QuickGear] Unequipped {item.Id} from {slot.Source} to fallback storage {fallbackStorage.Source}."
+                            );
+                        }
+                        continue;
+                    }
+
+                    bool unequipped = inventory.Unequip(item);
+                    if (!unequipped)
+                    {
+                        Debug.Log(
+                            $"[QuickGear] Failed to unequip {item.Id} from {slot.Source}. Item may be lost."
+                        );
                     }
                 }
             }
@@ -789,13 +936,18 @@ namespace QuasimorphHelloWorld
                         .Field<GameObject>("_inventoryWindow")
                         .Value;
 
-                    Transform parent = (inventoryWindow != null)
-                        ? inventoryWindow.transform
-                        : __instance.transform;
+                    Transform parent =
+                        (inventoryWindow != null)
+                            ? inventoryWindow.transform
+                            : __instance.transform;
 
                     var existingButton = parent.Find("QuickRestockButton");
                     if (existingButton != null)
+                    {
+                        Debug.Log("[QuickGear] QuickGear buttons already exist; updating for new merc.");
+                        UpdateExistingQuickGearButtons(parent, mercenary);
                         return;
+                    }
 
                     Debug.Log(
                         "[QuickGear] Creating QuickRestockButtons in ArsenalScreen under "
@@ -806,6 +958,9 @@ namespace QuasimorphHelloWorld
                     // Place buttons at the parent-local coordinates you provided (no snapping)
                     // Base parent-local point reported: (196.3, 122.8)
                     Vector2 baseLocal = new Vector2(196.3f, 122.8f);
+                    string mercName = !string.IsNullOrEmpty(mercenary.AgentName)
+                        ? mercenary.AgentName
+                        : mercenary.ProfileId;
 
                     CreateQuickGearButton(
                         parent,
@@ -824,13 +979,16 @@ namespace QuasimorphHelloWorld
                             {
                                 Debug.Log("[QuickGear] Error running Quick Restock: " + e.Message);
                             }
-                        }
+                        },
+                        "Pulls configured items from cargo to inventory, this equipment list is shared between all mercenary profiles.\n\nIdeal for items that are frequently used and need to be restocked quickly, such as medkits or consumables.",
+                        QuickGearButton.UpdateMode.QuickRestock,
+                        null
                     );
 
                     CreateQuickGearButton(
                         parent,
                         "LoadSavedEquipmentButton",
-                        "Load Saved Equipment",
+                        "Load equipment",
                         baseLocal + new Vector2(46f, 0f),
                         40f,
                         16f,
@@ -838,20 +996,27 @@ namespace QuasimorphHelloWorld
                         {
                             try
                             {
-                                Debug.Log("[QuickGear] Load Saved Equipment clicked: loading saved equipment.");
+                                Debug.Log(
+                                    "[QuickGear] Load Saved Equipment clicked: loading saved equipment."
+                                );
                                 ModMain.LoadSavedEquipment(mercenary);
                             }
                             catch (Exception e)
                             {
-                                Debug.Log("[QuickGear] Error loading saved equipment: " + e.Message);
+                                Debug.Log(
+                                    "[QuickGear] Error loading saved equipment: " + e.Message
+                                );
                             }
-                        }
+                        },
+                        "Load saved equipment, limbs, and implants for this mercenary.",
+                        QuickGearButton.UpdateMode.LoadSavedEquipment,
+                        mercenary.ProfileId
                     );
 
                     CreateQuickGearButton(
                         parent,
                         "SaveEquipmentButton",
-                        "Save Equipment",
+                        "Save equipment",
                         baseLocal + new Vector2(92f, 0f),
                         40f,
                         16f,
@@ -866,7 +1031,38 @@ namespace QuasimorphHelloWorld
                             {
                                 Debug.Log("[QuickGear] Error saving equipment: " + e.Message);
                             }
-                        }
+                        },
+                        "Save current equipped items, limbs, and implants for this mercenary.",
+                        QuickGearButton.UpdateMode.SaveEquipment,
+                        mercenary.ProfileId
+                    );
+
+                    CreateQuickGearButton(
+                        parent,
+                        "SaveInventoryButton",
+                        "Update Quick Restock",
+                        baseLocal + new Vector2(138f, 0f),
+                        40f,
+                        16f,
+                        () =>
+                        {
+                            try
+                            {
+                                Debug.Log(
+                                    "[QuickGear] Save Inventory clicked: saving current inventory to quick equip config."
+                                );
+                                ModMain.SaveInventoryQuickGear(mercenary);
+                            }
+                            catch (Exception e)
+                            {
+                                Debug.Log(
+                                    "[QuickGear] Error saving inventory quick equip: " + e.Message
+                                );
+                            }
+                        },
+                        "Save the current inventory items into the quick restock configuration. \n\nSaves to a shared configuration for all mercenary profiles.",
+                        QuickGearButton.UpdateMode.SaveInventory,
+                        mercenary.ProfileId
                     );
                 }
                 catch (Exception e)
@@ -879,11 +1075,14 @@ namespace QuasimorphHelloWorld
             private static void CreateQuickGearButton(
                 Transform parent,
                 string objectName,
-                string label,
+                string baseLabel,
                 Vector2 anchoredPosition,
                 float width,
                 float height,
-                Action onClick
+                Action onClick,
+                string tooltipText = null,
+                QuickGearButton.UpdateMode updateMode = QuickGearButton.UpdateMode.None,
+                string mercProfileId = null
             )
             {
                 if (parent.Find(objectName) != null)
@@ -908,10 +1107,23 @@ namespace QuasimorphHelloWorld
                 rect.sizeDelta = new Vector2(width, height);
                 rect.localScale = Vector3.one;
 
+                // Ensure layout systems (if parent has a LayoutGroup) respect our fixed size
+                var layout = buttonObj.AddComponent<LayoutElement>();
+                layout.preferredWidth = width;
+                layout.preferredHeight = height;
+                layout.minWidth = width;
+                layout.minHeight = height;
+                layout.flexibleWidth = 0f;
+                layout.flexibleHeight = 0f;
+
                 var img = buttonObj.GetComponent<Image>();
-                img.color = new Color(0.12f, 0.56f, 0.9f, 0.95f);
+                img.color = new Color(25f / 255f, 32f / 255f, 33f / 255f, 0.95f);
                 img.type = Image.Type.Sliced;
                 img.raycastTarget = true;
+
+                var outline = buttonObj.AddComponent<Outline>();
+                outline.effectColor = new Color(79f / 255f, 114f / 255f, 102f / 255f, 0.95f);
+                outline.effectDistance = new Vector2(1f, -1f);
 
                 var button = buttonObj.GetComponent<Button>();
                 button.targetGraphic = img;
@@ -935,16 +1147,279 @@ namespace QuasimorphHelloWorld
                 captionRect.offsetMax = new Vector2(-4f, -4f);
 
                 var txt = captionObj.GetComponent<Text>();
-                txt.text = label;
+                // initial label; if updateMode provided we'll let the component update it
+                txt.text = baseLabel;
                 txt.alignment = TextAnchor.MiddleCenter;
                 txt.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
                 txt.color = Color.white;
+                txt.horizontalOverflow = HorizontalWrapMode.Wrap;
+                txt.verticalOverflow = VerticalWrapMode.Truncate;
                 // Keep text simple and small per user preference
                 txt.resizeTextForBestFit = false;
                 txt.fontSize = 3;
                 txt.raycastTarget = false;
 
+                if (!string.IsNullOrEmpty(tooltipText))
+                {
+                    var tooltip = buttonObj.AddComponent<QuickGearTooltip>();
+                    tooltip.TooltipText = tooltipText;
+                }
+
+                if (updateMode != QuickGearButton.UpdateMode.None)
+                {
+                    var updater = buttonObj.AddComponent<QuickGearButton>();
+                    updater.Mode = updateMode;
+                    updater.BaseText = baseLabel;
+                    updater.MercProfileId = mercProfileId;
+                }
+
                 // No persistent mouse logging — debug removed to reduce log spam
+            }
+
+            private static int GetQuickRestockItemCount()
+            {
+                return _config.Items?.Sum(item => Math.Max(0, item.Count)) ?? 0;
+            }
+
+            private static int GetSavedEquipmentCount(Mercenary merc)
+            {
+                if (merc == null || !TryGetSavedEquipment(merc.ProfileId, out var savedEquip))
+                {
+                    return 0;
+                }
+
+                return CountSavedEquipmentItems(savedEquip);
+            }
+
+            private static int GetCurrentEquipmentCount(Mercenary merc)
+            {
+                if (merc == null)
+                    return 0;
+
+                var inventory = merc.CreatureData?.Inventory;
+                if (inventory == null)
+                    return 0;
+
+                int count = 0;
+                foreach (var slot in new[]
+                    {
+                        inventory.BackpackSlot,
+                        inventory.PrimarySlot,
+                        inventory.SecondarySlot,
+                        inventory.ServoArmSlot,
+                        inventory.AdditionalSlot,
+                        inventory.ArmorSlot,
+                        inventory.HelmetSlot,
+                        inventory.LeggingsSlot,
+                        inventory.BootsSlot,
+                        inventory.VestSlot
+                    })
+                {
+                    if (slot?.First != null)
+                    {
+                        count += 1;
+                    }
+                }
+
+                return count;
+            }
+
+            private static int GetInventorySaveCount(Mercenary merc)
+            {
+                if (merc == null)
+                    return 0;
+
+                var inventory = merc.CreatureData?.Inventory;
+                if (inventory == null)
+                    return 0;
+
+                int total = 0;
+                foreach (ItemStorage storage in inventory.Storages)
+                {
+                    if (storage == null)
+                        continue;
+
+                    foreach (BasePickupItem item in storage.Items)
+                    {
+                        if (item == null)
+                            continue;
+
+                        total += item.IsStackable ? item.StackCount : 1;
+                    }
+                }
+
+                return total;
+            }
+
+            private static int CountSavedEquipmentItems(ModConfig.SavedEquipment savedEquip)
+            {
+                if (savedEquip == null)
+                    return 0;
+
+                int count = savedEquip.Equipment?.Count ?? 0;
+                count += savedEquip.Limbs?.Count ?? 0;
+                count += savedEquip.Implants?.Values.Sum(list => list?.Count ?? 0) ?? 0;
+                return count;
+            }
+
+            private static void UpdateExistingQuickGearButtons(Transform parent, Mercenary mercenary)
+            {
+                UpdateQuickGearButton(parent, "QuickRestockButton", () => ModMain.EquipQuickGear(mercenary), QuickGearButton.UpdateMode.QuickRestock, null);
+                UpdateQuickGearButton(parent, "LoadSavedEquipmentButton", () =>
+                {
+                    Debug.Log("[QuickGear] Load Saved Equipment clicked: loading saved equipment.");
+                    ModMain.LoadSavedEquipment(mercenary);
+                }, QuickGearButton.UpdateMode.LoadSavedEquipment, mercenary.ProfileId);
+                UpdateQuickGearButton(parent, "SaveEquipmentButton", () =>
+                {
+                    Debug.Log("[QuickGear] Save Equipment clicked: saving equipment.");
+                    ModMain.SaveEquipment(mercenary);
+                }, QuickGearButton.UpdateMode.SaveEquipment, mercenary.ProfileId);
+                UpdateQuickGearButton(parent, "SaveInventoryButton", () =>
+                {
+                    Debug.Log("[QuickGear] Save Inventory clicked: saving current inventory to quick equip config.");
+                    ModMain.SaveInventoryQuickGear(mercenary);
+                }, QuickGearButton.UpdateMode.SaveInventory, mercenary.ProfileId);
+            }
+
+            private static void UpdateQuickGearButton(
+                Transform parent,
+                string objectName,
+                Action onClick,
+                QuickGearButton.UpdateMode mode,
+                string mercProfileId
+            )
+            {
+                var buttonObj = parent.Find(objectName);
+                if (buttonObj == null)
+                    return;
+
+                var button = buttonObj.GetComponent<Button>();
+                if (button != null)
+                {
+                    button.onClick.RemoveAllListeners();
+                    if (onClick != null)
+                        button.onClick.AddListener(() => onClick());
+                }
+
+                var updater = buttonObj.GetComponent<QuickGearButton>();
+                if (updater != null)
+                {
+                    updater.Mode = mode;
+                    updater.MercProfileId = mercProfileId;
+                    updater.UpdateLabelImmediate();
+                }
+            }
+
+            private static string FormatButtonLabel(string baseText, int count)
+            {
+                return count > 0 ? $"{baseText} ({count})" : baseText;
+            }
+
+            private class QuickGearTooltip : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
+            {
+                public string TooltipText;
+                private bool _createdTooltip;
+
+                public void OnPointerEnter(PointerEventData eventData)
+                {
+                    if (_createdTooltip || string.IsNullOrEmpty(TooltipText))
+                        return;
+
+                    _createdTooltip = true;
+                    if (SingletonMonoBehaviour<TooltipFactory>.Instance != null)
+                    {
+                        SingletonMonoBehaviour<TooltipFactory>.Instance.ShowSimpleTextTooltip(TooltipText);
+                    }
+                }
+
+                public void OnPointerExit(PointerEventData eventData)
+                {
+                    if (!_createdTooltip)
+                        return;
+
+                    _createdTooltip = false;
+                    if (SingletonMonoBehaviour<TooltipFactory>.Instance != null)
+                    {
+                        SingletonMonoBehaviour<TooltipFactory>.Instance.HideSimpleTextTooltip();
+                    }
+                }
+            }
+
+            private class QuickGearButton : MonoBehaviour
+            {
+                public enum UpdateMode { None = 0, QuickRestock = 1, LoadSavedEquipment = 2, SaveEquipment = 3, SaveInventory = 4 }
+                public UpdateMode Mode = UpdateMode.None;
+                public string BaseText;
+                public string MercProfileId;
+
+                private Text _caption;
+                private float _nextUpdate;
+
+                private void Start()
+                {
+                    var t = transform.Find("Caption");
+                    if (t != null)
+                        _caption = t.GetComponent<Text>();
+                    _nextUpdate = Time.time;
+                    UpdateLabelImmediate();
+                }
+
+                private void Update()
+                {
+                    if (Time.time < _nextUpdate)
+                        return;
+                    _nextUpdate = Time.time + 0.5f;
+                    UpdateLabelImmediate();
+                }
+
+                public void UpdateLabelImmediate()
+                {
+                    if (_caption == null || string.IsNullOrEmpty(BaseText))
+                        return;
+
+                    int count = 0;
+                    try
+                    {
+                        switch (Mode)
+                        {
+                            case UpdateMode.QuickRestock:
+                                count = GetQuickRestockItemCount();
+                                break;
+                            case UpdateMode.LoadSavedEquipment:
+                                {
+                                    var merc = ResolveMerc();
+                                    count = GetSavedEquipmentCount(merc);
+                                }
+                                break;
+                            case UpdateMode.SaveEquipment:
+                                {
+                                    var merc = ResolveMerc();
+                                    count = GetCurrentEquipmentCount(merc);
+                                }
+                                break;
+                            case UpdateMode.SaveInventory:
+                                {
+                                    var merc = ResolveMerc();
+                                    count = GetInventorySaveCount(merc);
+                                }
+                                break;
+                        }
+                    }
+                    catch { }
+
+                    _caption.text = FormatButtonLabel(BaseText, count);
+                }
+
+                private Mercenary ResolveMerc()
+                {
+                    if (string.IsNullOrEmpty(MercProfileId) || ModMain._modContext == null)
+                        return null;
+                    var mercs = ModMain._modContext.State.Get<Mercenaries>();
+                    if (mercs == null)
+                        return null;
+                    return mercs.Get(MercProfileId);
+                }
             }
 
             private static void ClearHotkey(CommonButton button)
