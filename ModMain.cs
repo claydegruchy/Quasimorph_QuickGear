@@ -333,6 +333,8 @@ namespace QuasimorphHelloWorld
             {
                 PullFromCargo(cargo, new List<Mercenary> { merc }, entry.ItemId, entry.Count);
             }
+
+            RefreshArsenalScreen();
         }
 
         public static void SaveInventoryQuickGear(Mercenary merc)
@@ -612,6 +614,7 @@ namespace QuasimorphHelloWorld
                 Debug.Log($"[QuickGear] {message}");
             }
 
+            RefreshArsenalScreen();
             Debug.Log($"[QuickGear] Loaded saved equipment for {profileId}");
         }
 
@@ -678,6 +681,22 @@ namespace QuasimorphHelloWorld
                 "Vest" => inventory.VestSlot,
                 _ => null
             };
+        }
+
+        private static void RefreshArsenalScreen()
+        {
+            try
+            {
+                if (UI.IsShowing<ArsenalScreen>())
+                {
+                    var screen = UI.Get<ArsenalScreen>();
+                    screen?.RefreshView();
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.Log("[QuickGear] Failed to refresh Arsenal screen: " + ex.Message);
+            }
         }
 
         private static Mercenary GetSelectedMerc()
@@ -1156,7 +1175,7 @@ namespace QuasimorphHelloWorld
                 txt.verticalOverflow = VerticalWrapMode.Truncate;
                 // Keep text simple and small per user preference
                 txt.resizeTextForBestFit = false;
-                txt.fontSize = 3;
+                txt.fontSize = 4;
                 txt.raycastTarget = false;
 
                 if (!string.IsNullOrEmpty(tooltipText))
