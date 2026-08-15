@@ -1,0 +1,30 @@
+{
+  "Languages": {
+    "English": {
+      "Quick Restock": "Quick Restock",
+      "Load equipment": "Load equipment",
+      "Save equipment": "Save equipment",
+      "Update Quick Restock": "Update Quick\nRestock",
+      "Keep implants": "Keep implants",
+
+      "Pulls configured items from cargo to inventory, this equipment list is shared between all mercenary profiles.\n\nIdeal for items that are frequently used and need to be restocked quickly, such as medkits or consumables.": "Pulls configured items from cargo to inventory, this equipment list is shared between all mercenary profiles.\n\nIdeal for items that are frequently used and need to be restocked quickly, such as medkits or consumables.",
+      "Load saved equipment, limbs, and implants for this mercenary.": "Load saved equipment, limbs, and implants for this mercenary.",
+      "Save current equipped items, limbs, and implants for this mercenary.": "Save current equipped items, limbs, and implants for this mercenary.",
+      "Save the current inventory items into the quick restock configuration. \n\nSaves to a shared configuration for all mercenary profiles.": "Save the current inventory items into the quick restock configuration. \n\nSaves to a shared configuration for all mercenary profiles.",
+      "When enabled, equipment sets include augments and implants.": "When enabled, equipment sets include augments and implants."
+    },
+    "Russian": {
+      "Quick Restock": "Быстрое пополнение",
+      "Load equipment": "Загрузить снаряжение",
+      "Save equipment": "Сохранить снаряжение",
+      "Update Quick Restock": "Обновить пополнение",
+      "Keep implants": "Сохранять импланты",
+
+      "Pulls configured items from cargo to inventory, this equipment list is shared between all mercenary profiles.\n\nIdeal for items that are frequently used and need to be restocked quickly, such as medkits or consumables.": "Перемещает настроенные предметы из грузового отсека в инвентарь.\n\nСписок общий для всех наемников. Удобно для медикаментов и расходников.",
+      "Load saved equipment, limbs, and implants for this mercenary.": "Загрузить сохранённое снаряжение, аугменты и импланты этого наемника.",
+      "Save current equipped items, limbs, and implants for this mercenary.": "Сохранить текущее снаряжение, аугменты и импланты этого наемника.",
+      "Save the current inventory items into the quick restock configuration. \n\nSaves to a shared configuration for all mercenary profiles.": "Сохранить содержимое инвентаря в список быстрого пополнения.\n\nСписок общий для всех наемников.",
+      "When enabled, equipment sets include augments and implants.": "Если включено, в набор снаряжения сохраняются аугменты и импланты."
+    }
+  }
+}

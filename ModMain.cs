@@ -19,6 +19,12 @@ namespace QuasimorphHelloWorld
             public int Count { get; set; } = 1;
         }
 
+        public class ModLocalization
+        {
+            public Dictionary<string, Dictionary<string, string>> Languages { get; set; } =
+                new Dictionary<string, Dictionary<string, string>>();
+        }
+
         public class SavedEquipment
         {
             public Dictionary<string, string> Equipment { get; set; } =
@@ -33,6 +39,7 @@ namespace QuasimorphHelloWorld
         public Dictionary<string, SavedEquipment> SavedEquipmentHistory { get; set; } =
             new Dictionary<string, SavedEquipment>();
         public string HotkeyCode { get; set; } = "G";
+        public bool SaveImplants { get; set; } = true;
     }
 
     public static class ModMain
@@ -46,14 +53,19 @@ namespace QuasimorphHelloWorld
                     new ModConfig.ItemEntry { ItemId = "water_bottle_1", Count = 1 }
                 },
                 SavedEquipmentHistory = new Dictionary<string, ModConfig.SavedEquipment>(),
-                HotkeyCode = "G"
+                HotkeyCode = "G",
+                SaveImplants = true
             };
 
+        public static IModContext _modContext;
         private static ModConfig _config = new ModConfig();
         private static KeyCode _hotkey = KeyCode.G;
         private static readonly Harmony _harmony = new Harmony("QuickGear");
         private static int _currentSlot = -1;
-        public static IModContext _modContext;
+        private static ModConfig.ModLocalization _localization = new ModConfig.ModLocalization();
+
+        public static bool SaveImplants { get; set; } = true;
+        private static int _fontSize = 4;
 
         private static string DefaultConfigPath =>
             Path.Combine(
@@ -87,6 +99,7 @@ namespace QuasimorphHelloWorld
             );
             _harmony.PatchAll();
             EnsureDefaultConfig();
+            EnsureLocalization();
         }
 
         [Hook(ModHookType.MainMenuStarted)]
@@ -120,6 +133,57 @@ namespace QuasimorphHelloWorld
 
             LoadConfig(slotPath);
             Debug.Log($"[QuickGear] Loaded slot {meta.Slot} config.");
+        }
+
+        private static void EnsureLocalization()
+        {
+            try
+            {
+                var assembly = typeof(ModMain).Assembly;
+
+                string resourceName = assembly
+                    .GetManifestResourceNames()
+                    .FirstOrDefault(name =>
+                        name.EndsWith(
+                            "Assets.localization.json",
+                            StringComparison.OrdinalIgnoreCase
+                        )
+                    );
+
+                if (string.IsNullOrEmpty(resourceName))
+                {
+                    Debug.LogError(
+                        "[QuickGear] Embedded localization.json was not found in DLL."
+                    );
+
+                    _localization = new ModConfig.ModLocalization();
+                    return;
+                }
+
+                using (Stream stream = assembly.GetManifestResourceStream(resourceName))
+                using (StreamReader reader = new StreamReader(stream))
+                {
+                    string json = reader.ReadToEnd();
+
+                    _localization =
+                        JsonConvert.DeserializeObject<ModConfig.ModLocalization>(json)
+                        ?? new ModConfig.ModLocalization();
+                }
+
+                Debug.Log(
+                    "[QuickGear] Embedded localization loaded: "
+                    + resourceName
+                );
+            }
+            catch (Exception e)
+            {
+                Debug.LogError(
+                    "[QuickGear] Failed to load embedded localization: "
+                    + e.Message
+                );
+
+                _localization = new ModConfig.ModLocalization();
+            }
         }
 
         private static void EnsureDefaultConfig()
@@ -286,19 +350,22 @@ namespace QuasimorphHelloWorld
             if (inventory.VestSlot.First != null)
                 savedEquip.Equipment["Vest"] = inventory.VestSlot.First.Id;
 
-            // Save limbs (augmentations)
-            foreach (var kvp in merc.CreatureData.AugmentationMap)
+            if (_config.SaveImplants)
             {
-                savedEquip.Limbs[kvp.Key] = kvp.Value;
-            }
-
-            // Save implants
-            foreach (var kvp in merc.CreatureData.WoundSlotMap)
-            {
-                var implantIds = kvp.Value.InstalledImplantsData.Select(i => i.ImplantId).ToList();
-                if (implantIds.Any())
+                // Save limbs (augmentations)
+                foreach (var kvp in merc.CreatureData.AugmentationMap)
                 {
-                    savedEquip.Implants[kvp.Key] = implantIds;
+                    savedEquip.Limbs[kvp.Key] = kvp.Value;
+                }
+
+                // Save implants
+                foreach (var kvp in merc.CreatureData.WoundSlotMap)
+                {
+                    var implantIds = kvp.Value.InstalledImplantsData.Select(i => i.ImplantId).ToList();
+                    if (implantIds.Any())
+                    {
+                        savedEquip.Implants[kvp.Key] = implantIds;
+                    }
                 }
             }
 
@@ -599,6 +666,7 @@ namespace QuasimorphHelloWorld
             }
 
             AugmentationSystem.ConfigureImplicitEffects(merc.CreatureData);
+            RefreshArsenalScreen(merc);
 
             if (failedLimbs.Any() || failedImplants.Any() || missingItems.Any())
             {
@@ -618,6 +686,28 @@ namespace QuasimorphHelloWorld
         public static bool HasSavedEquipment(Mercenary merc)
         {
             return TryGetSavedEquipment(merc.ProfileId, out _);
+        }
+
+        private static void RefreshArsenalScreen(Mercenary merc)
+        {
+            if (
+                merc == null
+                || !UI.IsShowing<ArsenalScreen>()
+            )
+            {
+                return;
+            }
+
+            ArsenalScreen screen = UI.Get<ArsenalScreen>();
+
+            if (screen == null)
+                return;
+
+            screen.RefreshView();
+
+            Debug.Log(
+                "[QuickGear] Arsenal screen refreshed."
+            );
         }
 
         private static bool TryGetSavedEquipment(
@@ -920,6 +1010,47 @@ namespace QuasimorphHelloWorld
         [HarmonyPatch(typeof(ArsenalScreen), "Configure")]
         public static class ArsenalScreen_Configure_Patch
         {
+            private class QuickGearLocalizedLabel : MonoBehaviour
+            {
+                public string LocalizationKey;
+
+                private Text _label;
+                private string _lastLanguage;
+
+                private void Start()
+                {
+                    _label = GetComponent<Text>();
+                    UpdateText();
+                }
+
+                private void Update()
+                {
+                    if (_label == null)
+                        return;
+
+                    string currentLanguage =
+                        Singleton<Localization>.Instance.CurrentLang.ToString();
+
+                    if (currentLanguage == _lastLanguage)
+                        return;
+
+                    UpdateText();
+                }
+
+                private void UpdateText()
+                {
+                    if (_label == null || string.IsNullOrEmpty(LocalizationKey))
+                        return;
+
+                    _lastLanguage =
+                        Singleton<Localization>.Instance.CurrentLang.ToString();
+
+                    _label.text = GetLocalizedButtonText(LocalizationKey);
+                }
+            }
+
+            private static Vector2 TogglePoistion = new Vector2(353f, 122.8f);
+
             public static void Postfix(ArsenalScreen __instance, Mercenary mercenary)
             {
                 try
@@ -946,6 +1077,12 @@ namespace QuasimorphHelloWorld
                     {
                         Debug.Log("[QuickGear] QuickGear buttons already exist; updating for new merc.");
                         UpdateExistingQuickGearButtons(parent, mercenary);
+
+                        CreateSaveImplantsToggle(
+                            parent,
+                            TogglePoistion
+                            );
+
                         return;
                     }
 
@@ -957,7 +1094,11 @@ namespace QuasimorphHelloWorld
                     // Create three smaller buttons (25% of previous size) in top-right of inventory window
                     // Place buttons at the parent-local coordinates you provided (no snapping)
                     // Base parent-local point reported: (196.3, 122.8)
-                    Vector2 baseLocal = new Vector2(196.3f, 122.8f);
+
+                    // New baseLocal (185f, 122.8f) - for space on implant toggle
+
+                    Vector2 baseLocal = new Vector2(185f, 122.8f);
+
                     string mercName = !string.IsNullOrEmpty(mercenary.AgentName)
                         ? mercenary.AgentName
                         : mercenary.ProfileId;
@@ -1064,6 +1205,12 @@ namespace QuasimorphHelloWorld
                         QuickGearButton.UpdateMode.SaveInventory,
                         mercenary.ProfileId
                     );
+
+                    CreateSaveImplantsToggle(
+                            parent,
+                            TogglePoistion
+                            );
+
                 }
                 catch (Exception e)
                 {
@@ -1080,7 +1227,7 @@ namespace QuasimorphHelloWorld
                 float width,
                 float height,
                 Action onClick,
-                string tooltipText = null,
+                string localizationKey = null,
                 QuickGearButton.UpdateMode updateMode = QuickGearButton.UpdateMode.None,
                 string mercProfileId = null
             )
@@ -1143,8 +1290,8 @@ namespace QuasimorphHelloWorld
                 var captionRect = captionObj.GetComponent<RectTransform>();
                 captionRect.anchorMin = Vector2.zero;
                 captionRect.anchorMax = Vector2.one;
-                captionRect.offsetMin = new Vector2(4f, 4f);
-                captionRect.offsetMax = new Vector2(-4f, -4f);
+                captionRect.offsetMin = new Vector2(2f, 2);
+                captionRect.offsetMax = new Vector2(-2f, -2f);
 
                 var txt = captionObj.GetComponent<Text>();
                 // initial label; if updateMode provided we'll let the component update it
@@ -1156,13 +1303,13 @@ namespace QuasimorphHelloWorld
                 txt.verticalOverflow = VerticalWrapMode.Truncate;
                 // Keep text simple and small per user preference
                 txt.resizeTextForBestFit = false;
-                txt.fontSize = 3;
+                txt.fontSize = _fontSize;
                 txt.raycastTarget = false;
 
-                if (!string.IsNullOrEmpty(tooltipText))
+                if (!string.IsNullOrEmpty(localizationKey))
                 {
-                    var tooltip = buttonObj.AddComponent<QuickGearTooltip>();
-                    tooltip.TooltipText = tooltipText;
+                    var tooltip =  buttonObj.AddComponent<QuickGearTooltip>();
+                    tooltip.LocalizationKey = localizationKey;
                 }
 
                 if (updateMode != QuickGearButton.UpdateMode.None)
@@ -1174,6 +1321,258 @@ namespace QuasimorphHelloWorld
                 }
 
                 // No persistent mouse logging — debug removed to reduce log spam
+            }
+
+            private static void CreateSaveImplantsToggle(
+                Transform parent,
+                Vector2 position
+                )
+            {
+                if (parent == null)
+                    return;
+
+                if (_config == null)
+                    _config = new ModConfig();
+
+                GameObject toggleObject = parent
+                    .Find("SaveImplantsToggle")
+                    ?.gameObject;
+
+                if (toggleObject == null)
+                {
+                    toggleObject = new GameObject(
+                        "SaveImplantsToggle",
+                        typeof(RectTransform),
+                        typeof(CanvasRenderer),
+                        typeof(Toggle)
+                    );
+
+                    toggleObject.layer = LayerMask.NameToLayer("UI");
+                    toggleObject.transform.SetParent(parent, false);
+                    toggleObject.transform.SetAsLastSibling();
+
+                    var toggleRect =
+                        toggleObject.GetComponent<RectTransform>();
+
+                    toggleRect.anchorMin = new Vector2(0.5f, 0.5f);
+                    toggleRect.anchorMax = new Vector2(0.5f, 0.5f);
+                    toggleRect.pivot = new Vector2(0.5f, 0.5f);
+                    toggleRect.anchoredPosition = position;
+                    toggleRect.sizeDelta = new Vector2(110f, 18f);
+                    toggleRect.localScale = Vector3.one;
+
+                    var backgroundObject = new GameObject(
+                        "Background",
+                        typeof(RectTransform),
+                        typeof(CanvasRenderer),
+                        typeof(Image)
+                    );
+
+                    backgroundObject.layer = toggleObject.layer;
+                    backgroundObject.transform.SetParent(
+                        toggleObject.transform,
+                        false
+                    );
+
+                    var backgroundRect =
+                        backgroundObject.GetComponent<RectTransform>();
+
+                    backgroundRect.anchorMin = new Vector2(1f, 0.5f);
+                    backgroundRect.anchorMax = new Vector2(1f, 0.5f);
+                    backgroundRect.pivot = new Vector2(1f, 0.5f);
+                    backgroundRect.sizeDelta = new Vector2(14f, 14f);
+
+                    var background =
+                        backgroundObject.GetComponent<Image>();
+
+                    var checkboxSprite =
+                        Resources.GetBuiltinResource<Sprite>(
+                            "UI/Skin/UISprite.psd"
+                        );
+
+                    var panelObject = new GameObject(
+                        "TogglePanel",
+                        typeof(RectTransform),
+                        typeof(CanvasRenderer),
+                        typeof(Image)
+                        );
+
+                    panelObject.layer = toggleObject.layer;
+                    panelObject.transform.SetParent(
+                        toggleObject.transform,
+                        false
+                    );
+                    var panelRect =
+                        panelObject.GetComponent<RectTransform>();
+                    panelRect.anchorMin = new Vector2(0.5f, 0.5f);
+                    panelRect.anchorMax = new Vector2(0.5f, 0.5f);
+                    panelRect.pivot = new Vector2(0.5f, 0.5f);
+                    panelRect.sizeDelta = new Vector2(60f, 16f);
+
+                    //Position background
+                    panelRect.anchoredPosition = new Vector2(26f, 0f);
+
+                    var panelImage =
+                        panelObject.GetComponent<Image>();
+                    panelImage.sprite = checkboxSprite;
+                    panelImage.type = Image.Type.Sliced;
+                    panelImage.color = new Color(
+                        25f / 255f,
+                        32f / 255f,
+                        33f / 255f,
+                        0.95f
+                    );
+
+                    panelImage.raycastTarget = false;
+                    var panelOutline =
+                        panelObject.AddComponent<Outline>();
+                    panelOutline.effectColor = new Color(
+                        79f / 255f,
+                        114f / 255f,
+                        102f / 255f,
+                        0.95f
+                    );
+                    panelOutline.effectDistance = new Vector2(1f, -1f);
+                    panelObject.transform.SetAsFirstSibling();
+
+                    background.sprite = checkboxSprite;
+                    background.type = Image.Type.Sliced;
+                    background.color = new Color(
+                        25f / 255f,
+                        32f / 255f,
+                        33f / 255f,
+                        1f
+                    );
+                    background.raycastTarget = true;
+
+                    var outline = backgroundObject.AddComponent<Outline>();
+                    outline.effectColor = new Color(
+                        132f / 255f,
+                        190f / 255f,
+                        155f / 255f,
+                        1f
+                    );
+                    outline.effectDistance = new Vector2(1f, -1f);
+
+                    var checkmarkObject = new GameObject(
+                        "Checkmark",
+                        typeof(RectTransform),
+                        typeof(CanvasRenderer),
+                        typeof(Image)
+                    );
+
+                    checkmarkObject.layer = toggleObject.layer;
+                    checkmarkObject.transform.SetParent(
+                        backgroundObject.transform,
+                        false
+                    );
+
+                    var checkmarkRect =
+                        checkmarkObject.GetComponent<RectTransform>();
+
+                    checkmarkRect.anchorMin = new Vector2(0.5f, 0.5f);
+                    checkmarkRect.anchorMax = new Vector2(0.5f, 0.5f);
+                    checkmarkRect.pivot = new Vector2(0.5f, 0.5f);
+                    checkmarkRect.anchoredPosition = Vector2.zero;
+                    checkmarkRect.sizeDelta = new Vector2(9f, 9f);
+
+                    var checkmark =
+                        checkmarkObject.GetComponent<Image>();
+
+                    checkmark.sprite = checkboxSprite;
+                    checkmark.color = new Color(
+                        132f / 255f,
+                        190f / 255f,
+                        155f / 255f,
+                        1f
+                    );
+                    checkmark.raycastTarget = false;
+
+                    var labelObject = new GameObject(
+                        "Caption",
+                        typeof(RectTransform),
+                        typeof(CanvasRenderer),
+                        typeof(Text)
+                    );
+
+                    labelObject.layer = toggleObject.layer;
+                    labelObject.transform.SetParent(
+                        toggleObject.transform,
+                        false
+                    );
+
+                    var labelRect =
+                        labelObject.GetComponent<RectTransform>();
+
+                    labelRect.anchorMax = new Vector2(0f, 0.5f);
+                    labelRect.pivot = new Vector2(0f, 0.5f);
+                    labelRect.anchoredPosition = new Vector2(4.5f, 0f);
+                    labelRect.sizeDelta = new Vector2(82f, 18f);
+                    labelRect.localScale = Vector3.one;
+
+                    var label =
+                        labelObject.GetComponent<Text>();
+
+                    label.alignment = TextAnchor.MiddleCenter;
+
+                    label.text = GetLocalizedButtonText("Keep implants");
+                    var localizedLabel = labelObject.AddComponent<QuickGearLocalizedLabel>();
+                    localizedLabel.LocalizationKey = "Keep implants";
+
+                    label.font = Resources.GetBuiltinResource<Font>(
+                        "Arial.ttf"
+                    );
+                    label.fontSize = _fontSize;
+                    label.color = Color.white;
+                    label.horizontalOverflow =
+                        HorizontalWrapMode.Overflow;
+                    label.verticalOverflow =
+                        VerticalWrapMode.Truncate;
+                    label.raycastTarget = false;
+
+                    panelImage.raycastTarget = true;
+                    var tooltip =
+                        panelObject.AddComponent<QuickGearTooltip>();
+                    tooltip.LocalizationKey =
+                        "When enabled, equipment sets include augments and implants.";
+
+                    var toggle =
+                        toggleObject.GetComponent<Toggle>();
+
+                    toggle.targetGraphic = background;
+                    toggle.graphic = checkmark;
+                    toggle.toggleTransition =
+                        Toggle.ToggleTransition.Fade;
+                }
+
+                var saveToggle =
+                    toggleObject.GetComponent<Toggle>();
+
+                if (saveToggle == null)
+                    return;
+
+                saveToggle.onValueChanged.RemoveAllListeners();
+
+                saveToggle.isOn = _config.SaveImplants;
+
+                saveToggle.onValueChanged.AddListener(value =>
+                {
+                    _config.SaveImplants = value;
+                    ModMain.SaveConfig();
+
+                    Debug.Log(
+                        "[QuickGear] Save augments and implants: "
+                            + value
+                    );
+                });
+
+                toggleObject.SetActive(true);
+                toggleObject.transform.SetAsLastSibling();
+
+                Debug.Log(
+                    "[QuickGear] SaveImplantsToggle created at "
+                        + position
+                );
             }
 
             private static int GetQuickRestockItemCount()
@@ -1313,23 +1712,27 @@ namespace QuasimorphHelloWorld
 
             private static string FormatButtonLabel(string baseText, int count)
             {
-                return count > 0 ? $"{baseText} ({count})" : baseText;
+                return count > 0 ? $"{baseText}: {count}" : baseText;
             }
 
             private class QuickGearTooltip : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
             {
-                public string TooltipText;
+                public string LocalizationKey;
                 private bool _createdTooltip;
 
                 public void OnPointerEnter(PointerEventData eventData)
                 {
-                    if (_createdTooltip || string.IsNullOrEmpty(TooltipText))
+                    if (_createdTooltip || string.IsNullOrEmpty(LocalizationKey))
                         return;
 
+                    string localizationKey =
+                        GetLocalizedButtonText(LocalizationKey);
                     _createdTooltip = true;
+
                     if (SingletonMonoBehaviour<TooltipFactory>.Instance != null)
                     {
-                        SingletonMonoBehaviour<TooltipFactory>.Instance.ShowSimpleTextTooltip(TooltipText);
+                        SingletonMonoBehaviour<TooltipFactory>.Instance
+                            .ShowSimpleTextTooltip(localizationKey);
                     }
                 }
 
@@ -1408,7 +1811,8 @@ namespace QuasimorphHelloWorld
                     }
                     catch { }
 
-                    _caption.text = FormatButtonLabel(BaseText, count);
+                    string buttonText = GetLocalizedButtonText(BaseText);
+                    _caption.text = FormatButtonLabel(buttonText, count);
                 }
 
                 private Mercenary ResolveMerc()
@@ -1449,6 +1853,27 @@ namespace QuasimorphHelloWorld
                 }
 
                 Traverse.Create(hotkeyButton).Field("_keyId").SetValue(string.Empty);
+            }
+
+            private static string GetLocalizedButtonText(string key)
+            {
+                string language =
+                    Singleton<Localization>.Instance.CurrentLang.ToString();
+
+                if (
+                    _localization?.Languages != null
+                    && _localization.Languages.TryGetValue(
+                        language,
+                        out var languageTexts
+                    )
+                    && languageTexts.TryGetValue(key, out var localizedText)
+                    && !string.IsNullOrWhiteSpace(localizedText)
+                )
+                {
+                    return localizedText;
+                }
+
+                return key;
             }
 
             // QuickGearDebug removed — no runtime mouse logging to avoid log spam
