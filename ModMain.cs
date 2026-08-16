@@ -77,6 +77,22 @@ namespace QuasimorphHelloWorld
                 $"slot_{slot}_config.json"
             );
 
+        /// <summary>
+        /// Example: Create a button using the new ButtonAPI.CreateButton method
+        /// This demonstrates how to use the simplified API for creating buttons with callbacks
+        /// </summary>
+        [Obsolete("Example - use this pattern when needing custom button creation")]
+        public static void CreateCustomButton(IGameObject parent, string buttonId)
+        {
+            Debug.Log($"[QuasimorphHelloWorld] Creating custom button: {buttonId}");
+            
+            // Use the new simplified API
+            ButtonAPI.CreateButton(parent, buttonId, 
+                "Example Button", new Vector2(100f, 50f), 80f, 24f,
+                () => Debug.Log($"[QuasimorphHelloWorld] Callback executed for: {buttonId}"),
+                "This is an example tooltip", null, "example_data");
+        }
+
         [Hook(ModHookType.AfterBootstrap)]
         public static void OnAfterBootstrap(IModContext context)
         {
