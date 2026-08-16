@@ -168,6 +168,11 @@ namespace QuasimorphHelloWorld
             }
 
             ItemStorage cargoFallback = magnumCargo.ShipCargo.FirstOrDefault();
+            if (cargoFallback != null)
+            {
+                StashInventoryIntoCargo(inventory, cargoFallback);
+            }
+
             UnequipAllEquipment(merc, cargoFallback);
 
             var allItems = inventory.AllContainers.SelectMany(c => c.Items).ToList();
@@ -178,11 +183,8 @@ namespace QuasimorphHelloWorld
 
             if (cargoFallback != null)
             {
-                Debug.Log("[QuickGear] Clearing augmentations/implants from first ship cargo container.");
-                AugmentationSystem.RemoveAllAugmentationsAndImplants(
-                    merc,
-                    cargoFallback
-                );
+                Debug.Log("[QuickGear] Clearing implants before augmentations from first ship cargo container.");
+                ClearExistingAugmentationsAndImplants(merc, cargoFallback);
                 shipCargoItems = magnumCargo.ShipCargo.SelectMany(c => c.Items).ToList();
             }
             else
@@ -247,6 +249,8 @@ namespace QuasimorphHelloWorld
                 }
             }
 
+            AugmentationSystem.ConfigureImplicitEffects(merc.CreatureData, false);
+
             foreach (var kvp in savedEquip.Implants)
             {
                 string woundSlotId = kvp.Key;
@@ -294,6 +298,8 @@ namespace QuasimorphHelloWorld
                 }
             }
 
+            AugmentationSystem.ConfigureImplicitEffects(merc.CreatureData, false);
+
             foreach (var kvp in savedEquip.Equipment)
             {
                 string slotName = kvp.Key;
@@ -329,11 +335,11 @@ namespace QuasimorphHelloWorld
                     continue;
                 }
 
-                bool equipped = inventory.TakeOrEquip(item, putIfSlotBusy: true);
-                Debug.Log($"[QuickGear] Equip attempt for {itemId} into {slotName}: {equipped}.");
+                bool equipped = TryEquipIntoSavedSlot(inventory, slotName, slot, item, out string equipFailReason);
+                Debug.Log($"[QuickGear] Equip attempt for {itemId} into {slotName}: {equipped}. {(equipped ? string.Empty : "Reason: " + equipFailReason)}");
                 if (!equipped)
                 {
-                    Debug.Log($"[QuickGear] Failed to equip {itemId} into slot {slotName}.");
+                    Debug.Log($"[QuickGear] Failed to equip {itemId} into slot {slotName}. {equipFailReason}");
                 }
 
                 if (magnumCargo != null)
@@ -365,6 +371,61 @@ namespace QuasimorphHelloWorld
 
             RefreshArsenalScreen();
             Debug.Log($"[QuickGear] Loaded saved equipment for {profileId}");
+        }
+
+        private static void ClearExistingAugmentationsAndImplants(
+            Mercenary merc,
+            ItemStorage cargoFallback
+        )
+        {
+            var creatureData = merc.CreatureData;
+
+            foreach (string woundSlotId in creatureData.WoundSlotMap.Keys.ToList())
+            {
+                if (AugmentationSystem.HasImplantsInstalled(creatureData, woundSlotId))
+                {
+                    AugmentationSystem.RemoveAllImplants(
+                        creatureData,
+                        woundSlotId,
+                        cargoFallback,
+                        false
+                    );
+                }
+            }
+
+            foreach (string woundSlotId in creatureData.AugmentationMap.Keys.ToList())
+            {
+                AugmentationSystem.RemoveAugmentation(merc, woundSlotId, cargoFallback, true);
+            }
+
+            AugmentationSystem.RestoreDefaultWoundSlots(merc);
+            AugmentationSystem.ConfigureImplicitEffects(creatureData, false);
+            CreatureSystem.SetBareHandSlot(creatureData);
+        }
+
+        private static void StashInventoryIntoCargo(Inventory inventory, ItemStorage cargoFallback)
+        {
+            foreach (ItemStorage storage in inventory.AllContainers)
+            {
+                if (
+                    storage == null
+                    || storage == inventory.BareHandsSlot
+                    || storage == inventory.ArmStumpSlot
+                    || storage.Items.Count == 0
+                )
+                {
+                    continue;
+                }
+
+                foreach (BasePickupItem item in storage.Items.ToList())
+                {
+                    storage.Remove(item);
+                    if (!cargoFallback.TryPutItem(item, CellPosition.Zero))
+                    {
+                        cargoFallback.AddItemAndReshuffleOptional(item);
+                    }
+                }
+            }
         }
 
         public static bool HasSavedEquipment(Mercenary merc)
@@ -451,6 +512,76 @@ namespace QuasimorphHelloWorld
                 "Backpack" => inventory.BackpackSlot,
                 "Vest" => inventory.VestSlot,
                 _ => null
+            };
+        }
+
+        private static bool TryEquipIntoSavedSlot(
+            Inventory inventory,
+            string slotName,
+            ItemStorage slot,
+            BasePickupItem item,
+            out string reason
+        )
+        {
+            reason = string.Empty;
+
+            if (slot == null)
+            {
+                reason = "Target slot is null.";
+                return false;
+            }
+
+            if (item == null)
+            {
+                reason = "Item is null.";
+                return false;
+            }
+
+            if (!IsSlotAvailableForSavedName(inventory, slotName, slot))
+            {
+                reason = $"Slot {slotName} is currently unavailable for this mercenary state.";
+                return false;
+            }
+
+            if (!slot.IsValidItem(item))
+            {
+                reason = $"Item {item.Id} is not valid for slot {slotName}.";
+                return false;
+            }
+
+            if (!slot.Empty)
+            {
+                reason = $"Slot {slotName} is already occupied by {slot.First?.Id ?? "unknown item"}.";
+                return false;
+            }
+
+            bool moved = ItemInteractionSystem.Move(item, slot, CellPosition.Zero, true, false);
+            if (!moved)
+            {
+                reason = $"Move to slot {slotName} was rejected by ItemInteractionSystem.";
+            }
+
+            return moved;
+        }
+
+        private static bool IsSlotAvailableForSavedName(
+            Inventory inventory,
+            string slotName,
+            ItemStorage slot
+        )
+        {
+            if (slot == null)
+            {
+                return false;
+            }
+
+            return slotName switch
+            {
+                "Primary" => inventory.IsSlotAvailable(WeaponSlotType.Primary),
+                "Secondary" => inventory.IsSlotAvailable(WeaponSlotType.Secondary),
+                "Additional" => inventory.IsSlotAvailable(WeaponSlotType.Additional),
+                "ServoArm" => inventory.IsSlotAvailable(WeaponSlotType.ServoArm),
+                _ => !slot.IsBlocked
             };
         }
 
