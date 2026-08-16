@@ -9,7 +9,6 @@ namespace QuasimorphHelloWorld
     public static class ModMain
     {
         public static ModConfig _default_config => ModConfigStore.DefaultConfig;
-        public static KeyCode _hotkey = KeyCode.G;
         public static readonly Harmony _harmony = new Harmony("QuickGear");
         public static IModContext _modContext;
 
@@ -65,7 +64,7 @@ namespace QuasimorphHelloWorld
         [Hook(ModHookType.SpaceUpdateAfterGameLoop)]
         public static void OnSpaceUpdate(IModContext context)
         {
-            QuickGearService.OnSpaceUpdate(context);
+            // QuickGear is run from the Arsenal UI buttons; no keybind trigger is required.
         }
 
         public static void EnsureDefaultConfig() => ModConfigStore.EnsureDefaultConfig();
@@ -73,13 +72,6 @@ namespace QuasimorphHelloWorld
         public static void LoadConfig(string path)
         {
             ModConfigStore.LoadConfig(path);
-            if (!Enum.TryParse<KeyCode>(ModConfigStore.Config.HotkeyCode, out _hotkey))
-            {
-                Debug.Log(
-                    "[QuickGear] Invalid hotkey '" + ModConfigStore.Config.HotkeyCode + "', defaulting to G."
-                );
-                _hotkey = KeyCode.G;
-            }
         }
 
         public static void SaveConfig() => ModConfigStore.SaveConfig();

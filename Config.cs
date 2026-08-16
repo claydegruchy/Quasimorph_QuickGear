@@ -27,7 +27,6 @@ namespace QuasimorphHelloWorld
         public List<ItemEntry> Items { get; set; } = new List<ItemEntry>();
         public Dictionary<string, SavedEquipment> SavedEquipmentHistory { get; set; } =
             new Dictionary<string, SavedEquipment>();
-        public string HotkeyCode { get; set; } = "G";
     }
 
     public class ModGlobalSettings
@@ -50,8 +49,7 @@ namespace QuasimorphHelloWorld
                     new ModConfig.ItemEntry { ItemId = "medical_kit_2", Count = 2 },
                     new ModConfig.ItemEntry { ItemId = "water_bottle_1", Count = 1 }
                 },
-                SavedEquipmentHistory = new Dictionary<string, ModConfig.SavedEquipment>(),
-                HotkeyCode = "G"
+                SavedEquipmentHistory = new Dictionary<string, ModConfig.SavedEquipment>()
             };
 
         public static ModGlobalSettings DefaultGlobalSettings =>

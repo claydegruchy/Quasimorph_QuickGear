@@ -10,69 +10,9 @@ namespace QuasimorphHelloWorld
 {
     public static class QuickGearService
     {
-        private static float _lastHotkeyPressTime = -1f;
-        private static bool _pendingQuickEquip = false;
-        private static Mercenary _pendingQuickEquipMerc;
-        private const float DoublePressWindow = 0.5f;
-
         public static void OnSpaceUpdate(IModContext context)
         {
-            float now = Time.time;
-            if (!Input.GetKeyDown(ModMain._hotkey))
-            {
-                if (_pendingQuickEquip && now - _lastHotkeyPressTime >= DoublePressWindow)
-                {
-                    _pendingQuickEquip = false;
-                    if (_pendingQuickEquipMerc != null)
-                    {
-                        Debug.Log(
-                            "[QuickGear] Single hotkey press confirmed. Running quick equip."
-                        );
-                        EquipQuickGear(_pendingQuickEquipMerc);
-                        _pendingQuickEquipMerc = null;
-                    }
-                }
-                return;
-            }
-
-            Mercenary selectedMerc = GetSelectedMerc();
-            if (selectedMerc == null)
-            {
-                Debug.Log("[QuickGear] No merc selected.");
-                return;
-            }
-
-            bool isDoublePress =
-                _pendingQuickEquip
-                && _pendingQuickEquipMerc == selectedMerc
-                && (now - _lastHotkeyPressTime < DoublePressWindow);
-
-            if (isDoublePress)
-            {
-                Debug.Log("[QuickGear] Hotkey double-pressed. Equipping saved gear.");
-                _pendingQuickEquip = false;
-                _pendingQuickEquipMerc = null;
-                LoadSavedEquipment(selectedMerc);
-                return;
-            }
-
-            if (_pendingQuickEquip && now - _lastHotkeyPressTime >= DoublePressWindow)
-            {
-                _pendingQuickEquip = false;
-                if (_pendingQuickEquipMerc != null)
-                {
-                    Debug.Log(
-                        "[QuickGear] Previous single press timeout expired. Running quick equip."
-                    );
-                    EquipQuickGear(_pendingQuickEquipMerc);
-                    _pendingQuickEquipMerc = null;
-                }
-            }
-
-            _pendingQuickEquip = true;
-            _pendingQuickEquipMerc = selectedMerc;
-            _lastHotkeyPressTime = now;
-            Debug.Log("[QuickGear] Hotkey pressed. Waiting for second press to determine action.");
+            // QuickGear is triggered from the Arsenal UI buttons instead of a keybind.
         }
 
         public static void SaveEquipment(Mercenary merc)

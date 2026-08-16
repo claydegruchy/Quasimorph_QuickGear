@@ -36,7 +36,7 @@ If you want you can edit the config yourself. The config should be at
 For me thats 
 [code]C:\Users\ME\AppData\LocalLow\Magnum Scriptum LTD\Quasimorph_ModConfigs\QuickGear\config.json[/code]
 
-You can set the items you want in there as well as the hotkey for the mod (Default G).
+You can set the items you want in there as well as the shared quick restock list for the mod.
 
 The item names can be found on the wiki.
 
