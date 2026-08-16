@@ -30,9 +30,16 @@ namespace QuasimorphHelloWorld
         public string HotkeyCode { get; set; } = "G";
     }
 
+    public class ModGlobalSettings
+    {
+        public string Language { get; set; } = "en";
+        public bool EnableLogging { get; set; } = true;
+    }
+
     public static class ModConfigStore
     {
         public static ModConfig Config { get; set; } = new ModConfig();
+        public static ModGlobalSettings GlobalSettings { get; set; } = new ModGlobalSettings();
         public static int CurrentSlot { get; set; } = -1;
 
         public static ModConfig DefaultConfig =>
@@ -47,6 +54,13 @@ namespace QuasimorphHelloWorld
                 HotkeyCode = "G"
             };
 
+        public static ModGlobalSettings DefaultGlobalSettings =>
+            new ModGlobalSettings
+            {
+                Language = "en",
+                EnableLogging = true
+            };
+
         public static string DefaultConfigPath =>
             Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -56,6 +70,17 @@ namespace QuasimorphHelloWorld
                 "Quasimorph_ModConfigs",
                 "QuickGear",
                 "config.json"
+            );
+
+        public static string GlobalConfigPath =>
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "..",
+                "LocalLow",
+                "Magnum Scriptum Ltd",
+                "Quasimorph_ModConfigs",
+                "QuickGear",
+                "global_config.json"
             );
 
         public static string SlotConfigPath(int slot) =>
@@ -91,11 +116,43 @@ namespace QuasimorphHelloWorld
                     Debug.Log("[QuickGear] Created default config at: " + path);
                 }
 
+                EnsureGlobalSettings();
                 LoadConfig(path);
+                LoadGlobalSettings();
             }
             catch (Exception e)
             {
                 Debug.Log("[QuickGear] Failed to ensure default config. Error: " + e.Message);
+            }
+        }
+
+        public static void EnsureGlobalSettings()
+        {
+            try
+            {
+                string path = GlobalConfigPath;
+                string dir = Path.GetDirectoryName(path);
+
+                if (!Directory.Exists(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
+
+                if (!File.Exists(path))
+                {
+                    string defaultJson = JsonConvert.SerializeObject(
+                        DefaultGlobalSettings,
+                        Formatting.Indented
+                    );
+                    File.WriteAllText(path, defaultJson);
+                    Debug.Log("[QuickGear] Created global settings at: " + path);
+                }
+
+                LoadGlobalSettings();
+            }
+            catch (Exception e)
+            {
+                Debug.Log("[QuickGear] Failed to ensure global settings. Error: " + e.Message);
             }
         }
 
@@ -114,6 +171,32 @@ namespace QuasimorphHelloWorld
             }
         }
 
+        public static void LoadGlobalSettings()
+        {
+            try
+            {
+                string json = File.ReadAllText(GlobalConfigPath);
+                GlobalSettings = JsonConvert.DeserializeObject<ModGlobalSettings>(json) ?? new ModGlobalSettings();
+                if (string.IsNullOrWhiteSpace(GlobalSettings.Language))
+                {
+                    GlobalSettings.Language = "en";
+                }
+                ApplyGlobalSettings();
+                Debug.Log("[QuickGear] Loaded global settings from: " + GlobalConfigPath);
+            }
+            catch (Exception e)
+            {
+                Debug.Log("[QuickGear] Failed to load global settings, using defaults. Error: " + e.Message);
+                GlobalSettings = DefaultGlobalSettings;
+                ApplyGlobalSettings();
+            }
+        }
+
+        public static void ApplyGlobalSettings()
+        {
+            Debug.unityLogger.logEnabled = GlobalSettings.EnableLogging;
+        }
+
         public static void SaveConfig()
         {
             try
@@ -126,6 +209,21 @@ namespace QuasimorphHelloWorld
             catch (Exception e)
             {
                 Debug.Log("[QuickGear] Failed to save config. Error: " + e.Message);
+            }
+        }
+
+        public static void SaveGlobalSettings()
+        {
+            try
+            {
+                ApplyGlobalSettings();
+                string json = JsonConvert.SerializeObject(GlobalSettings, Formatting.Indented);
+                File.WriteAllText(GlobalConfigPath, json);
+                Debug.Log("[QuickGear] Saved global settings to: " + GlobalConfigPath);
+            }
+            catch (Exception e)
+            {
+                Debug.Log("[QuickGear] Failed to save global settings. Error: " + e.Message);
             }
         }
     }

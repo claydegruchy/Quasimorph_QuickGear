@@ -40,6 +40,7 @@ namespace QuasimorphHelloWorld
         [Hook(ModHookType.AfterSaveLoaded)]
         public static void OnAfterSaveLoaded(IModContext context)
         {
+            ModConfigStore.LoadGlobalSettings();
             SavedGameMetadata meta = context.State.Get<SavedGameMetadata>();
             ModConfigStore.CurrentSlot = (meta != null) ? meta.Slot : -1;
             if (meta == null)
