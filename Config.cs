@@ -161,10 +161,10 @@ namespace QuasimorphHelloWorld
                 GlobalSettings =
                     JsonConvert.DeserializeObject<ModGlobalSettings>(json)
                     ?? new ModGlobalSettings();
-                if (string.IsNullOrWhiteSpace(GlobalSettings.Language))
-                {
-                    GlobalSettings.Language = "en";
-                }
+
+                GlobalSettings.Language = QuickGearLocalization.NormalizeLanguageCode(
+                    GlobalSettings.Language
+                );
                 ApplyGlobalSettings();
                 Debug.Log("[QuickGear] Loaded global settings from: " + GlobalConfigPath);
             }
@@ -204,6 +204,9 @@ namespace QuasimorphHelloWorld
             try
             {
                 ApplyGlobalSettings();
+                GlobalSettings.Language = QuickGearLocalization.NormalizeLanguageCode(
+                    GlobalSettings.Language
+                );
                 string json = JsonConvert.SerializeObject(GlobalSettings, Formatting.Indented);
                 File.WriteAllText(GlobalConfigPath, json);
                 Debug.Log("[QuickGear] Saved global settings to: " + GlobalConfigPath);

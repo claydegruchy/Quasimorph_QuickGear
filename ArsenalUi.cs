@@ -54,7 +54,7 @@ namespace QuasimorphHelloWorld
                     {
                         new ButtonSpec(
                             "QuickRestockButton",
-                            "Quick Restock",
+                            QuickGearLocalization.Keys.QuickRestockButton,
                             baseLocal + new Vector2(0f, 0f),
                             40f,
                             16f,
@@ -71,11 +71,11 @@ namespace QuasimorphHelloWorld
                                     );
                                 }
                             },
-                            "Pulls configured items from cargo to inventory, this equipment list is shared between all mercenary profiles.\n\nIdeal for items that are frequently used and need to be restocked quickly, such as medkits or consumables."
+                            QuickGearLocalization.Keys.QuickRestockTooltip
                         ),
                         new ButtonSpec(
                             "LoadSavedEquipmentButton",
-                            "Load equipment",
+                            QuickGearLocalization.Keys.LoadEquipmentButton,
                             baseLocal + new Vector2(46f, 0f),
                             40f,
                             16f,
@@ -95,11 +95,11 @@ namespace QuasimorphHelloWorld
                                     );
                                 }
                             },
-                            "Load saved equipment, limbs, and implants for this mercenary."
+                            QuickGearLocalization.Keys.LoadEquipmentTooltip
                         ),
                         new ButtonSpec(
                             "SaveEquipmentButton",
-                            "Save equipment",
+                            QuickGearLocalization.Keys.SaveEquipmentButton,
                             baseLocal + new Vector2(92f, 0f),
                             40f,
                             16f,
@@ -117,11 +117,11 @@ namespace QuasimorphHelloWorld
                                     Debug.Log("[QuickGear] Error saving equipment: " + e.Message);
                                 }
                             },
-                            "Save current equipped items, limbs, and implants for this mercenary."
+                            QuickGearLocalization.Keys.SaveEquipmentTooltip
                         ),
                         new ButtonSpec(
                             "SaveInventoryButton",
-                            "Update Quick Restock",
+                            QuickGearLocalization.Keys.UpdateQuickRestockButton,
                             baseLocal + new Vector2(138f, 0f),
                             40f,
                             16f,
@@ -142,7 +142,7 @@ namespace QuasimorphHelloWorld
                                     );
                                 }
                             },
-                            "Save the current inventory items into the quick restock configuration.\n\nSaves to a shared configuration for all mercenary profiles."
+                            QuickGearLocalization.Keys.UpdateQuickRestockTooltip
                         )
                     };
 
@@ -161,30 +161,30 @@ namespace QuasimorphHelloWorld
             private sealed class ButtonSpec
             {
                 public string ObjectName { get; }
-                public string BaseLabel { get; }
+                public string LabelKey { get; }
                 public Vector2 AnchoredPosition { get; }
                 public float Width { get; }
                 public float Height { get; }
                 public Action OnClick { get; }
-                public string TooltipText { get; }
+                public string TooltipKey { get; }
 
                 public ButtonSpec(
                     string objectName,
-                    string baseLabel,
+                    string labelKey,
                     Vector2 anchoredPosition,
                     float width,
                     float height,
                     Action onClick,
-                    string tooltipText
+                    string tooltipKey
                 )
                 {
                     ObjectName = objectName;
-                    BaseLabel = baseLabel;
+                    LabelKey = labelKey;
                     AnchoredPosition = anchoredPosition;
                     Width = width;
                     Height = height;
                     OnClick = onClick;
-                    TooltipText = tooltipText;
+                    TooltipKey = tooltipKey;
                 }
             }
 
@@ -250,7 +250,7 @@ namespace QuasimorphHelloWorld
                 captionRect.offsetMax = new Vector2(-4f, -4f);
 
                 var txt = captionObj.GetComponent<Text>();
-                txt.text = spec.BaseLabel;
+                txt.text = QuickGearLocalization.Get(spec.LabelKey);
                 txt.alignment = TextAnchor.MiddleCenter;
                 txt.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
                 txt.color = Color.white;
@@ -260,10 +260,11 @@ namespace QuasimorphHelloWorld
                 txt.fontSize = 4;
                 txt.raycastTarget = false;
 
-                if (!string.IsNullOrEmpty(spec.TooltipText))
+                string localizedTooltipText = QuickGearLocalization.Get(spec.TooltipKey);
+                if (!string.IsNullOrEmpty(localizedTooltipText))
                 {
                     var tooltip = buttonObj.AddComponent<QuickGearTooltip>();
-                    tooltip.TooltipText = spec.TooltipText;
+                    tooltip.TooltipText = localizedTooltipText;
                 }
             }
 
@@ -319,6 +320,59 @@ namespace QuasimorphHelloWorld
                         QuickGearService.SaveInventoryQuickGear(mercenary);
                     }
                 );
+
+                RefreshLocalizedButtonContent(
+                    parent,
+                    "QuickRestockButton",
+                    QuickGearLocalization.Keys.QuickRestockButton,
+                    QuickGearLocalization.Keys.QuickRestockTooltip
+                );
+                RefreshLocalizedButtonContent(
+                    parent,
+                    "LoadSavedEquipmentButton",
+                    QuickGearLocalization.Keys.LoadEquipmentButton,
+                    QuickGearLocalization.Keys.LoadEquipmentTooltip
+                );
+                RefreshLocalizedButtonContent(
+                    parent,
+                    "SaveEquipmentButton",
+                    QuickGearLocalization.Keys.SaveEquipmentButton,
+                    QuickGearLocalization.Keys.SaveEquipmentTooltip
+                );
+                RefreshLocalizedButtonContent(
+                    parent,
+                    "SaveInventoryButton",
+                    QuickGearLocalization.Keys.UpdateQuickRestockButton,
+                    QuickGearLocalization.Keys.UpdateQuickRestockTooltip
+                );
+            }
+
+            private static void RefreshLocalizedButtonContent(
+                Transform parent,
+                string objectName,
+                string labelKey,
+                string tooltipKey
+            )
+            {
+                var buttonObj = parent.Find(objectName);
+                if (buttonObj == null)
+                    return;
+
+                var caption = buttonObj.Find("Caption");
+                if (caption != null)
+                {
+                    var text = caption.GetComponent<Text>();
+                    if (text != null)
+                    {
+                        text.text = QuickGearLocalization.Get(labelKey);
+                    }
+                }
+
+                var tooltip = buttonObj.GetComponent<QuickGearTooltip>();
+                if (tooltip != null)
+                {
+                    tooltip.TooltipText = QuickGearLocalization.Get(tooltipKey);
+                }
             }
 
             private static bool TryGetSavedEquipment(
