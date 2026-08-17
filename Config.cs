@@ -8,6 +8,8 @@ namespace QuasimorphHelloWorld
 {
     public class ModConfig
     {
+        public bool HandleAugsAndImplants { get; set; } = true;
+
         public class ItemEntry
         {
             public string ItemId { get; set; } = "";

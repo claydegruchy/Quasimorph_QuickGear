@@ -150,6 +150,8 @@ namespace QuasimorphHelloWorld
                     {
                         AddButton(parent, spec);
                     }
+
+                    AddOrUpdateAugsImplantsToggle(parent, GetAugsImplantsTogglePosition(parent));
                 }
                 catch (Exception e)
                 {
@@ -345,6 +347,8 @@ namespace QuasimorphHelloWorld
                     QuickGearLocalization.Keys.UpdateQuickRestockButton,
                     QuickGearLocalization.Keys.UpdateQuickRestockTooltip
                 );
+
+                AddOrUpdateAugsImplantsToggle(parent, GetAugsImplantsTogglePosition(parent));
             }
 
             private static void RefreshLocalizedButtonContent(
@@ -373,6 +377,169 @@ namespace QuasimorphHelloWorld
                 {
                     tooltip.TooltipText = QuickGearLocalization.Get(tooltipKey);
                 }
+            }
+
+            private static void AddOrUpdateAugsImplantsToggle(
+                Transform parent,
+                Vector2 anchoredPosition
+            )
+            {
+                var toggleObj = parent.Find("AugsImplantsToggle");
+                if (toggleObj == null)
+                {
+                    var root = new GameObject(
+                        "AugsImplantsToggle",
+                        typeof(RectTransform),
+                        typeof(CanvasRenderer),
+                        typeof(Toggle)
+                    );
+                    root.layer = LayerMask.NameToLayer("UI");
+                    root.transform.SetParent(parent, false);
+
+                    var rootRect = root.GetComponent<RectTransform>();
+                    rootRect.anchorMin = new Vector2(0.5f, 0.5f);
+                    rootRect.anchorMax = new Vector2(0.5f, 0.5f);
+                    rootRect.pivot = new Vector2(0.5f, 0.5f);
+                    rootRect.anchoredPosition = anchoredPosition;
+                    rootRect.sizeDelta = new Vector2(74f, 14f);
+                    rootRect.localScale = Vector3.one;
+
+                    var background = new GameObject(
+                        "Background",
+                        typeof(RectTransform),
+                        typeof(CanvasRenderer),
+                        typeof(Image)
+                    );
+                    background.layer = root.layer;
+                    background.transform.SetParent(root.transform, false);
+                    var bgRect = background.GetComponent<RectTransform>();
+                    const float checkboxX = 0f;
+                    const float checkboxSize = 10f;
+                    bgRect.anchorMin = new Vector2(0f, 0.5f);
+                    bgRect.anchorMax = new Vector2(0f, 0.5f);
+                    bgRect.pivot = new Vector2(0f, 0.5f);
+                    bgRect.anchoredPosition = new Vector2(checkboxX, 0f);
+                    bgRect.sizeDelta = new Vector2(checkboxSize, checkboxSize);
+                    var bgImage = background.GetComponent<Image>();
+                    bgImage.color = new Color(25f / 255f, 32f / 255f, 33f / 255f, 0.95f);
+
+                    var checkmark = new GameObject(
+                        "Checkmark",
+                        typeof(RectTransform),
+                        typeof(CanvasRenderer),
+                        typeof(Image)
+                    );
+                    checkmark.layer = root.layer;
+                    checkmark.transform.SetParent(background.transform, false);
+                    var checkRect = checkmark.GetComponent<RectTransform>();
+                    checkRect.anchorMin = Vector2.zero;
+                    checkRect.anchorMax = Vector2.one;
+                    checkRect.offsetMin = new Vector2(2f, 2f);
+                    checkRect.offsetMax = new Vector2(-2f, -2f);
+                    var checkImage = checkmark.GetComponent<Image>();
+                    checkImage.color = new Color(120f / 255f, 181f / 255f, 120f / 255f, 1f);
+
+                    var label = new GameObject(
+                        "Label",
+                        typeof(RectTransform),
+                        typeof(CanvasRenderer),
+                        typeof(Text)
+                    );
+                    label.layer = root.layer;
+                    label.transform.SetParent(root.transform, false);
+                    var labelRect = label.GetComponent<RectTransform>();
+                    labelRect.anchorMin = new Vector2(0f, 0f);
+                    labelRect.anchorMax = new Vector2(1f, 1f);
+                    float labelLeft = checkboxX + checkboxSize + 4f;
+                    labelRect.offsetMin = new Vector2(labelLeft, 0f);
+                    labelRect.offsetMax = new Vector2(0f, 0f);
+                    var labelText = label.GetComponent<Text>();
+                    labelText.text = QuickGearLocalization.Get(
+                        QuickGearLocalization.Keys.ToggleAugsImplantsLabel
+                    );
+                    labelText.alignment = TextAnchor.MiddleLeft;
+                    labelText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+                    labelText.color = Color.white;
+                    labelText.fontSize = 5;
+                    labelText.raycastTarget = false;
+
+                    var toggle = root.GetComponent<Toggle>();
+                    toggle.targetGraphic = bgImage;
+                    toggle.graphic = checkImage;
+
+                    var tooltip = root.AddComponent<QuickGearTooltip>();
+                    tooltip.TooltipText = QuickGearLocalization.Get(
+                        QuickGearLocalization.Keys.ToggleAugsImplantsTooltip
+                    );
+
+                    toggleObj = root.transform;
+                }
+
+                toggleObj.GetComponent<RectTransform>().anchoredPosition = anchoredPosition;
+                RefreshAugsImplantsToggle(toggleObj);
+            }
+
+            private static Vector2 GetAugsImplantsTogglePosition(Transform parent)
+            {
+                var rightButton = parent.Find("SaveInventoryButton");
+                if (rightButton != null)
+                {
+                    var rightButtonRect = rightButton.GetComponent<RectTransform>();
+                    if (rightButtonRect != null)
+                    {
+                        float buttonRightEdge =
+                            rightButtonRect.anchoredPosition.x
+                            + rightButtonRect.sizeDelta.x * 0.5f;
+                        float toggleHalfWidth = 74f * 0.5f;
+                        const float minGap = 10f;
+                        return new Vector2(
+                            buttonRightEdge + minGap + toggleHalfWidth,
+                            rightButtonRect.anchoredPosition.y
+                        );
+                    }
+                }
+
+                return new Vector2(380.3f, 122.8f);
+            }
+
+            private static void RefreshAugsImplantsToggle(Transform toggleObj)
+            {
+                var toggle = toggleObj.GetComponent<Toggle>();
+                if (toggle != null)
+                {
+                    toggle.onValueChanged.RemoveAllListeners();
+                    toggle.SetIsOnWithoutNotify(ModConfigStore.Config.HandleAugsAndImplants);
+                    toggle.onValueChanged.AddListener(OnAugsImplantsToggleChanged);
+                }
+
+                var label = toggleObj.Find("Label");
+                if (label != null)
+                {
+                    var labelText = label.GetComponent<Text>();
+                    if (labelText != null)
+                    {
+                        labelText.text = QuickGearLocalization.Get(
+                            QuickGearLocalization.Keys.ToggleAugsImplantsLabel
+                        );
+                    }
+                }
+
+                var tooltip = toggleObj.GetComponent<QuickGearTooltip>();
+                if (tooltip != null)
+                {
+                    tooltip.TooltipText = QuickGearLocalization.Get(
+                        QuickGearLocalization.Keys.ToggleAugsImplantsTooltip
+                    );
+                }
+            }
+
+            private static void OnAugsImplantsToggleChanged(bool isOn)
+            {
+                ModConfigStore.Config.HandleAugsAndImplants = isOn;
+                ModConfigStore.SaveConfig();
+                Debug.Log(
+                    $"[QuickGear] HandleAugsAndImplants set to {isOn} for slot {ModConfigStore.CurrentSlot}."
+                );
             }
 
             private static bool TryGetSavedEquipment(

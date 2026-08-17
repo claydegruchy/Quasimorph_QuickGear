@@ -23,6 +23,7 @@ namespace QuasimorphHelloWorld
             string profileId = merc.ProfileId;
             var savedEquip = new ModConfig.SavedEquipment();
             var inventory = merc.CreatureData.Inventory;
+            bool handleAugsAndImplants = ModConfigStore.Config.HandleAugsAndImplants;
 
             Debug.Log($"[QuickGear] Saving equipment for profileId={profileId} (raw profile key).\n[QuickGear] Current save slot: {ModConfigStore.CurrentSlot}");
 
@@ -47,17 +48,20 @@ namespace QuasimorphHelloWorld
             if (inventory.VestSlot.First != null)
                 savedEquip.Equipment["Vest"] = inventory.VestSlot.First.Id;
 
-            foreach (var kvp in merc.CreatureData.AugmentationMap)
+            if (handleAugsAndImplants)
             {
-                savedEquip.Limbs[kvp.Key] = kvp.Value;
-            }
-
-            foreach (var kvp in merc.CreatureData.WoundSlotMap)
-            {
-                var implantIds = kvp.Value.InstalledImplantsData.Select(i => i.ImplantId).ToList();
-                if (implantIds.Any())
+                foreach (var kvp in merc.CreatureData.AugmentationMap)
                 {
-                    savedEquip.Implants[kvp.Key] = implantIds;
+                    savedEquip.Limbs[kvp.Key] = kvp.Value;
+                }
+
+                foreach (var kvp in merc.CreatureData.WoundSlotMap)
+                {
+                    var implantIds = kvp.Value.InstalledImplantsData.Select(i => i.ImplantId).ToList();
+                    if (implantIds.Any())
+                    {
+                        savedEquip.Implants[kvp.Key] = implantIds;
+                    }
                 }
             }
 
@@ -158,6 +162,7 @@ namespace QuasimorphHelloWorld
             Debug.Log(
                 $"[QuickGear] LoadSavedEquipment for {profileId}: equipment={savedEquip.Equipment.Count}, limbs={savedEquip.Limbs.Count}, implants={savedEquip.Implants.Values.Sum(list => list?.Count ?? 0)}"
             );
+            bool handleAugsAndImplants = ModConfigStore.Config.HandleAugsAndImplants;
 
             var inventory = merc.CreatureData.Inventory;
             var magnumCargo = ModMain._modContext.State.Get<MagnumCargo>();
@@ -181,124 +186,134 @@ namespace QuasimorphHelloWorld
             Debug.Log($"[QuickGear] Ship cargo has {shipCargoItems.Count} items available.");
             var perkFactory = ModMain._modContext.State.Get<PerkFactory>();
 
-            if (cargoFallback != null)
+            if (handleAugsAndImplants)
             {
-                Debug.Log("[QuickGear] Clearing implants before augmentations from first ship cargo container.");
-                ClearExistingAugmentationsAndImplants(merc, cargoFallback);
-                shipCargoItems = magnumCargo.ShipCargo.SelectMany(c => c.Items).ToList();
+                if (cargoFallback != null)
+                {
+                    Debug.Log("[QuickGear] Clearing implants before augmentations from first ship cargo container.");
+                    ClearExistingAugmentationsAndImplants(merc, cargoFallback);
+                    shipCargoItems = magnumCargo.ShipCargo.SelectMany(c => c.Items).ToList();
+                }
+                else
+                {
+                    Debug.Log("[QuickGear] No magnum cargo available to clear implants and limbs.");
+                }
             }
             else
             {
-                Debug.Log("[QuickGear] No magnum cargo available to clear implants and limbs.");
+                Debug.Log("[QuickGear] Aug/implant handling disabled for this slot. Existing limbs/implants will be preserved.");
             }
 
             List<string> missingItems = new List<string>();
             List<string> failedLimbs = new List<string>();
             List<string> failedImplants = new List<string>();
 
-            foreach (var kvp in savedEquip.Limbs)
+            if (handleAugsAndImplants)
             {
-                string woundSlotId = kvp.Key;
-                string augId = kvp.Value;
-                Debug.Log($"[QuickGear] Loading limb {augId} into slot {woundSlotId}.");
-
-                var limbItem = allItems.FirstOrDefault(i => i.Id == augId);
-                if (limbItem == null)
+                foreach (var kvp in savedEquip.Limbs)
                 {
-                    limbItem = shipCargoItems.FirstOrDefault(i => i.Id == augId);
-                    if (limbItem != null)
+                    string woundSlotId = kvp.Key;
+                    string augId = kvp.Value;
+                    Debug.Log($"[QuickGear] Loading limb {augId} into slot {woundSlotId}.");
+
+                    var limbItem = allItems.FirstOrDefault(i => i.Id == augId);
+                    if (limbItem == null)
                     {
-                        Debug.Log($"[QuickGear] Limb {augId} found in ship cargo, pulling.");
-                        PullFromCargo(magnumCargo, new List<Mercenary> { merc }, augId, 1);
-                        allItems = inventory.AllContainers.SelectMany(c => c.Items).ToList();
-                        shipCargoItems = magnumCargo.ShipCargo.SelectMany(c => c.Items).ToList();
-                        limbItem = allItems.FirstOrDefault(i => i.Id == augId);
-                    }
-                }
-
-                if (limbItem == null)
-                {
-                    Debug.Log($"[QuickGear] Limb {augId} not found in inventory or cargo.");
-                    missingItems.Add(augId);
-                    continue;
-                }
-
-                if (
-                    merc.CreatureData.AugmentationMap.TryGetValue(woundSlotId, out var existingAug)
-                    && existingAug != augId
-                )
-                {
-                    AugmentationSystem.RemoveAugmentation(
-                        merc,
-                        woundSlotId,
-                        null,
-                        isItemSpawn: false
-                    );
-                }
-
-                if (!AugmentationSystem.TryApplyGeneratedAugmentation(merc.CreatureData, augId))
-                {
-                    Debug.Log($"[QuickGear] Failed to apply limb augmentation {augId} to slot {woundSlotId}.");
-                    failedLimbs.Add($"{woundSlotId}:{augId}");
-                }
-                else
-                {
-                    Debug.Log($"[QuickGear] Applied limb augmentation {augId} to slot {woundSlotId}.");
-                    RemoveItemFromInventory(inventory, limbItem);
-                    allItems = inventory.AllContainers.SelectMany(c => c.Items).ToList();
-                }
-            }
-
-            AugmentationSystem.ConfigureImplicitEffects(merc.CreatureData, false);
-
-            foreach (var kvp in savedEquip.Implants)
-            {
-                string woundSlotId = kvp.Key;
-                foreach (string implantId in kvp.Value)
-                {
-                    Debug.Log($"[QuickGear] Loading implant {implantId} into slot {woundSlotId}.");
-                    var implantItem = allItems.FirstOrDefault(i => i.Id == implantId);
-                    if (implantItem == null)
-                    {
-                        implantItem = shipCargoItems.FirstOrDefault(i => i.Id == implantId);
-                        if (implantItem != null)
+                        limbItem = shipCargoItems.FirstOrDefault(i => i.Id == augId);
+                        if (limbItem != null)
                         {
-                            Debug.Log($"[QuickGear] Implant {implantId} found in ship cargo, pulling.");
-                            PullFromCargo(magnumCargo, new List<Mercenary> { merc }, implantId, 1);
+                            Debug.Log($"[QuickGear] Limb {augId} found in ship cargo, pulling.");
+                            PullFromCargo(magnumCargo, new List<Mercenary> { merc }, augId, 1);
                             allItems = inventory.AllContainers.SelectMany(c => c.Items).ToList();
                             shipCargoItems = magnumCargo.ShipCargo.SelectMany(c => c.Items).ToList();
-                            implantItem = allItems.FirstOrDefault(i => i.Id == implantId);
+                            limbItem = allItems.FirstOrDefault(i => i.Id == augId);
                         }
                     }
 
-                    if (implantItem == null)
+                    if (limbItem == null)
                     {
-                        Debug.Log($"[QuickGear] Implant {implantId} not found in inventory or cargo.");
-                        missingItems.Add(implantId);
+                        Debug.Log($"[QuickGear] Limb {augId} not found in inventory or cargo.");
+                        missingItems.Add(augId);
                         continue;
                     }
 
                     if (
-                        !AugmentationSystem.TryApplyGeneratedImplant(
-                            perkFactory,
-                            merc.CreatureData,
-                            implantId
-                        )
+                        merc.CreatureData.AugmentationMap.TryGetValue(woundSlotId, out var existingAug)
+                        && existingAug != augId
                     )
                     {
-                        Debug.Log($"[QuickGear] Failed to apply implant {implantId} to slot {woundSlotId}.");
-                        failedImplants.Add($"{woundSlotId}:{implantId}");
+                        AugmentationSystem.RemoveAugmentation(
+                            merc,
+                            woundSlotId,
+                            null,
+                            isItemSpawn: false
+                        );
+                    }
+
+                    if (!AugmentationSystem.TryApplyGeneratedAugmentation(merc.CreatureData, augId))
+                    {
+                        Debug.Log($"[QuickGear] Failed to apply limb augmentation {augId} to slot {woundSlotId}.");
+                        failedLimbs.Add($"{woundSlotId}:{augId}");
                     }
                     else
                     {
-                        Debug.Log($"[QuickGear] Applied implant {implantId} to slot {woundSlotId}.");
-                        RemoveItemFromInventory(inventory, implantItem);
+                        Debug.Log($"[QuickGear] Applied limb augmentation {augId} to slot {woundSlotId}.");
+                        RemoveItemFromInventory(inventory, limbItem);
                         allItems = inventory.AllContainers.SelectMany(c => c.Items).ToList();
                     }
                 }
-            }
 
-            AugmentationSystem.ConfigureImplicitEffects(merc.CreatureData, false);
+                AugmentationSystem.ConfigureImplicitEffects(merc.CreatureData, false);
+
+                foreach (var kvp in savedEquip.Implants)
+                {
+                    string woundSlotId = kvp.Key;
+                    foreach (string implantId in kvp.Value)
+                    {
+                        Debug.Log($"[QuickGear] Loading implant {implantId} into slot {woundSlotId}.");
+                        var implantItem = allItems.FirstOrDefault(i => i.Id == implantId);
+                        if (implantItem == null)
+                        {
+                            implantItem = shipCargoItems.FirstOrDefault(i => i.Id == implantId);
+                            if (implantItem != null)
+                            {
+                                Debug.Log($"[QuickGear] Implant {implantId} found in ship cargo, pulling.");
+                                PullFromCargo(magnumCargo, new List<Mercenary> { merc }, implantId, 1);
+                                allItems = inventory.AllContainers.SelectMany(c => c.Items).ToList();
+                                shipCargoItems = magnumCargo.ShipCargo.SelectMany(c => c.Items).ToList();
+                                implantItem = allItems.FirstOrDefault(i => i.Id == implantId);
+                            }
+                        }
+
+                        if (implantItem == null)
+                        {
+                            Debug.Log($"[QuickGear] Implant {implantId} not found in inventory or cargo.");
+                            missingItems.Add(implantId);
+                            continue;
+                        }
+
+                        if (
+                            !AugmentationSystem.TryApplyGeneratedImplant(
+                                perkFactory,
+                                merc.CreatureData,
+                                implantId
+                            )
+                        )
+                        {
+                            Debug.Log($"[QuickGear] Failed to apply implant {implantId} to slot {woundSlotId}.");
+                            failedImplants.Add($"{woundSlotId}:{implantId}");
+                        }
+                        else
+                        {
+                            Debug.Log($"[QuickGear] Applied implant {implantId} to slot {woundSlotId}.");
+                            RemoveItemFromInventory(inventory, implantItem);
+                            allItems = inventory.AllContainers.SelectMany(c => c.Items).ToList();
+                        }
+                    }
+                }
+
+                AugmentationSystem.ConfigureImplicitEffects(merc.CreatureData, false);
+            }
 
             foreach (var kvp in savedEquip.Equipment)
             {
