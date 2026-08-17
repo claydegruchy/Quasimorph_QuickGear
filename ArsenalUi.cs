@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using MGSC;
 using UnityEngine;
@@ -13,6 +14,9 @@ namespace QuasimorphHelloWorld
         [HarmonyPatch(typeof(ArsenalScreen), "Configure")]
         public static class ArsenalScreen_Configure_Patch
         {
+            private static string _selectedLoadSourceProfileId;
+            private static Transform _loadSourceDropdownParent;
+
             public static void Postfix(ArsenalScreen __instance, Mercenary mercenary)
             {
                 try
@@ -33,6 +37,8 @@ namespace QuasimorphHelloWorld
                         (inventoryWindow != null)
                             ? inventoryWindow.transform
                             : __instance.transform;
+
+                    EnsureSelectedSourceValidity(mercenary);
 
                     var existingButton = parent.Find("QuickRestockButton");
                     if (existingButton != null)
@@ -77,7 +83,7 @@ namespace QuasimorphHelloWorld
                             "LoadSavedEquipmentButton",
                             QuickGearLocalization.Keys.LoadEquipmentButton,
                             baseLocal + new Vector2(46f, 0f),
-                            40f,
+                            48f,
                             16f,
                             () =>
                             {
@@ -86,7 +92,11 @@ namespace QuasimorphHelloWorld
                                     Debug.Log(
                                         "[QuickGear] Load Saved Equipment clicked: loading saved equipment."
                                     );
-                                    QuickGearService.LoadSavedEquipment(mercenary);
+                                    QuickGearService.LoadSavedEquipment(
+                                        mercenary,
+                                        ResolveSelectedLoadSourceProfileId(mercenary)
+                                    );
+                                    CloseLoadSourceDropdown();
                                 }
                                 catch (Exception e)
                                 {
@@ -100,7 +110,7 @@ namespace QuasimorphHelloWorld
                         new ButtonSpec(
                             "SaveEquipmentButton",
                             QuickGearLocalization.Keys.SaveEquipmentButton,
-                            baseLocal + new Vector2(92f, 0f),
+                            baseLocal + new Vector2(100f, 0f),
                             40f,
                             16f,
                             () =>
@@ -122,7 +132,7 @@ namespace QuasimorphHelloWorld
                         new ButtonSpec(
                             "SaveInventoryButton",
                             QuickGearLocalization.Keys.UpdateQuickRestockButton,
-                            baseLocal + new Vector2(138f, 0f),
+                            baseLocal + new Vector2(146f, 0f),
                             40f,
                             16f,
                             () =>
@@ -249,7 +259,10 @@ namespace QuasimorphHelloWorld
                 captionRect.anchorMin = Vector2.zero;
                 captionRect.anchorMax = Vector2.one;
                 captionRect.offsetMin = new Vector2(4f, 4f);
-                captionRect.offsetMax = new Vector2(-4f, -4f);
+                captionRect.offsetMax =
+                    spec.ObjectName == "LoadSavedEquipmentButton"
+                        ? new Vector2(-12f, -4f)
+                        : new Vector2(-4f, -4f);
 
                 var txt = captionObj.GetComponent<Text>();
                 txt.text = QuickGearLocalization.Get(spec.LabelKey);
@@ -268,6 +281,11 @@ namespace QuasimorphHelloWorld
                     var tooltip = buttonObj.AddComponent<QuickGearTooltip>();
                     tooltip.TooltipText = localizedTooltipText;
                 }
+
+                if (spec.ObjectName == "LoadSavedEquipmentButton")
+                {
+                    EnsureLoadSourceArrow(buttonObj.transform, parent);
+                }
             }
 
             private static void UpdateExistingQuickGearButtons(
@@ -275,6 +293,8 @@ namespace QuasimorphHelloWorld
                 Mercenary mercenary
             )
             {
+                EnsureSelectedSourceValidity(mercenary);
+
                 void RebindButton(string objectName, Action onClick)
                 {
                     var buttonObj = parent.Find(objectName);
@@ -301,7 +321,11 @@ namespace QuasimorphHelloWorld
                         Debug.Log(
                             "[QuickGear] Load Saved Equipment clicked: loading saved equipment."
                         );
-                        QuickGearService.LoadSavedEquipment(mercenary);
+                        QuickGearService.LoadSavedEquipment(
+                            mercenary,
+                            ResolveSelectedLoadSourceProfileId(mercenary)
+                        );
+                        CloseLoadSourceDropdown();
                     }
                 );
                 RebindButton(
@@ -335,6 +359,12 @@ namespace QuasimorphHelloWorld
                     QuickGearLocalization.Keys.LoadEquipmentButton,
                     QuickGearLocalization.Keys.LoadEquipmentTooltip
                 );
+
+                var loadButtonObj = parent.Find("LoadSavedEquipmentButton");
+                if (loadButtonObj != null)
+                {
+                    EnsureLoadSourceArrow(loadButtonObj, parent);
+                }
                 RefreshLocalizedButtonContent(
                     parent,
                     "SaveEquipmentButton",
@@ -577,6 +607,362 @@ namespace QuasimorphHelloWorld
                 return profileId.EndsWith("_custom")
                     ? profileId.Substring(0, profileId.Length - "_custom".Length)
                     : profileId;
+            }
+
+            private static void EnsureSelectedSourceValidity(Mercenary currentMerc)
+            {
+                if (currentMerc == null)
+                {
+                    _selectedLoadSourceProfileId = null;
+                    return;
+                }
+
+                if (string.IsNullOrWhiteSpace(_selectedLoadSourceProfileId))
+                {
+                    return;
+                }
+
+                if (!QuickGearService.HasSavedEquipment(_selectedLoadSourceProfileId))
+                {
+                    _selectedLoadSourceProfileId = null;
+                }
+            }
+
+            private static string ResolveSelectedLoadSourceProfileId(Mercenary currentMerc)
+            {
+                if (currentMerc == null)
+                {
+                    return null;
+                }
+
+                EnsureSelectedSourceValidity(currentMerc);
+                return string.IsNullOrWhiteSpace(_selectedLoadSourceProfileId)
+                    ? currentMerc.ProfileId
+                    : _selectedLoadSourceProfileId;
+            }
+
+            private static void EnsureLoadSourceArrow(Transform loadButton, Transform parent)
+            {
+                if (loadButton == null)
+                {
+                    return;
+                }
+
+                var arrowObj = loadButton.Find("LoadSourceArrowButton") as RectTransform;
+                if (arrowObj == null)
+                {
+                    var obj = new GameObject(
+                        "LoadSourceArrowButton",
+                        typeof(RectTransform),
+                        typeof(CanvasRenderer),
+                        typeof(Image),
+                        typeof(Button)
+                    );
+                    obj.layer = loadButton.gameObject.layer;
+                    obj.transform.SetParent(loadButton, false);
+                    arrowObj = obj.GetComponent<RectTransform>();
+
+                    var arrowTextObj = new GameObject(
+                        "Caption",
+                        typeof(RectTransform),
+                        typeof(CanvasRenderer),
+                        typeof(Text)
+                    );
+                    arrowTextObj.layer = obj.layer;
+                    arrowTextObj.transform.SetParent(obj.transform, false);
+
+                    var arrowTextRect = arrowTextObj.GetComponent<RectTransform>();
+                    arrowTextRect.anchorMin = Vector2.zero;
+                    arrowTextRect.anchorMax = Vector2.one;
+                    arrowTextRect.offsetMin = Vector2.zero;
+                    arrowTextRect.offsetMax = Vector2.zero;
+
+                    var arrowText = arrowTextObj.GetComponent<Text>();
+                    arrowText.text = "v";
+                    arrowText.alignment = TextAnchor.MiddleCenter;
+                    arrowText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+                    arrowText.color = Color.white;
+                    arrowText.fontSize = 6;
+                    arrowText.raycastTarget = false;
+                }
+
+                arrowObj.anchorMin = new Vector2(1f, 0f);
+                arrowObj.anchorMax = new Vector2(1f, 1f);
+                arrowObj.pivot = new Vector2(1f, 0.5f);
+                arrowObj.anchoredPosition = Vector2.zero;
+                arrowObj.sizeDelta = new Vector2(10f, 0f);
+
+                var image = arrowObj.GetComponent<Image>();
+                image.color = new Color(40f / 255f, 49f / 255f, 50f / 255f, 0.95f);
+                image.raycastTarget = true;
+
+                var button = arrowObj.GetComponent<Button>();
+                button.targetGraphic = image;
+                button.onClick.RemoveAllListeners();
+                button.onClick.AddListener(() =>
+                {
+                    var selectedMerc = QuickGearService.GetSelectedMerc();
+                    ToggleLoadSourceDropdown(parent, loadButton.GetComponent<RectTransform>(), selectedMerc);
+                });
+
+                var tooltip = arrowObj.GetComponent<QuickGearTooltip>();
+                if (tooltip == null)
+                {
+                    tooltip = arrowObj.gameObject.AddComponent<QuickGearTooltip>();
+                }
+
+                tooltip.TooltipText = QuickGearLocalization.Get(
+                    QuickGearLocalization.Keys.LoadEquipmentSourceTooltip
+                );
+            }
+
+            private static void ToggleLoadSourceDropdown(
+                Transform parent,
+                RectTransform loadButtonRect,
+                Mercenary currentMerc
+            )
+            {
+                if (parent == null || loadButtonRect == null)
+                {
+                    return;
+                }
+
+                if (_loadSourceDropdownParent != null && _loadSourceDropdownParent != parent)
+                {
+                    CloseLoadSourceDropdown();
+                }
+
+                var existing = parent.Find("LoadSourceDropdownPanel");
+                if (existing != null)
+                {
+                    CloseLoadSourceDropdown();
+                    return;
+                }
+
+                BuildLoadSourceDropdown(parent, loadButtonRect, currentMerc);
+            }
+
+            private static void BuildLoadSourceDropdown(
+                Transform parent,
+                RectTransform loadButtonRect,
+                Mercenary currentMerc
+            )
+            {
+                List<LoadSourceOption> options = BuildLoadSourceOptions();
+                if (options.Count == 0)
+                {
+                    Debug.Log("[QuickGear] No saved equipment sources available for dropdown.");
+                    return;
+                }
+
+                EnsureSelectedSourceValidity(currentMerc);
+
+                var panel = new GameObject(
+                    "LoadSourceDropdownPanel",
+                    typeof(RectTransform),
+                    typeof(CanvasRenderer),
+                    typeof(Canvas),
+                    typeof(GraphicRaycaster),
+                    typeof(Image),
+                    typeof(VerticalLayoutGroup),
+                    typeof(ContentSizeFitter),
+                    typeof(Outline)
+                );
+                panel.layer = LayerMask.NameToLayer("UI");
+                panel.transform.SetParent(parent, false);
+                _loadSourceDropdownParent = parent;
+
+                var panelRect = panel.GetComponent<RectTransform>();
+                panelRect.anchorMin = new Vector2(0.5f, 0.5f);
+                panelRect.anchorMax = new Vector2(0.5f, 0.5f);
+                panelRect.pivot = new Vector2(1f, 1f);
+                panelRect.anchoredPosition =
+                    loadButtonRect.anchoredPosition + new Vector2(loadButtonRect.sizeDelta.x * 0.5f, -10f);
+                panelRect.sizeDelta = new Vector2(154f, 4f);
+                panel.transform.SetAsLastSibling();
+
+                var panelCanvas = panel.GetComponent<Canvas>();
+                panelCanvas.overrideSorting = true;
+                panelCanvas.sortingOrder = 5000;
+
+                var panelImage = panel.GetComponent<Image>();
+                panelImage.color = new Color(22f / 255f, 29f / 255f, 30f / 255f, 0.98f);
+                panelImage.raycastTarget = true;
+
+                var panelOutline = panel.GetComponent<Outline>();
+                panelOutline.effectColor = new Color(79f / 255f, 114f / 255f, 102f / 255f, 0.95f);
+                panelOutline.effectDistance = new Vector2(1f, -1f);
+
+                var layout = panel.GetComponent<VerticalLayoutGroup>();
+                layout.childControlHeight = false;
+                layout.childControlWidth = true;
+                layout.childForceExpandHeight = false;
+                layout.childForceExpandWidth = true;
+                layout.spacing = 1f;
+                layout.padding = new RectOffset(2, 2, 2, 2);
+
+                var fitter = panel.GetComponent<ContentSizeFitter>();
+                fitter.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
+                fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+                foreach (var option in options)
+                {
+                    bool isSelected = string.Equals(
+                        ResolveSelectedLoadSourceProfileId(currentMerc),
+                        option.ProfileId,
+                        StringComparison.Ordinal
+                    );
+
+                    AddLoadSourceOptionRow(
+                        panel.transform,
+                        option,
+                        isSelected,
+                        () =>
+                        {
+                            _selectedLoadSourceProfileId = option.ProfileId;
+                            Debug.Log(
+                                $"[QuickGear] Load source selected: {option.DisplayName} ({option.ProfileId})"
+                            );
+                            CloseLoadSourceDropdown();
+                        }
+                    );
+                }
+            }
+
+            private static void AddLoadSourceOptionRow(
+                Transform parent,
+                LoadSourceOption option,
+                bool isSelected,
+                Action onClick
+            )
+            {
+                var row = new GameObject(
+                    "Option_" + NormalizeProfileId(option.ProfileId),
+                    typeof(RectTransform),
+                    typeof(CanvasRenderer),
+                    typeof(Image),
+                    typeof(Button),
+                    typeof(LayoutElement)
+                );
+                row.layer = LayerMask.NameToLayer("UI");
+                row.transform.SetParent(parent, false);
+
+                var rowRect = row.GetComponent<RectTransform>();
+                rowRect.sizeDelta = new Vector2(0f, 16f);
+
+                var layoutElement = row.GetComponent<LayoutElement>();
+                layoutElement.preferredHeight = 16f;
+                layoutElement.minHeight = 16f;
+                layoutElement.flexibleHeight = 0f;
+
+                var rowImage = row.GetComponent<Image>();
+                rowImage.color = isSelected
+                    ? new Color(71f / 255f, 101f / 255f, 91f / 255f, 1f)
+                    : new Color(36f / 255f, 46f / 255f, 47f / 255f, 1f);
+                rowImage.raycastTarget = true;
+
+                var rowButton = row.GetComponent<Button>();
+                rowButton.targetGraphic = rowImage;
+                rowButton.onClick.RemoveAllListeners();
+                if (onClick != null)
+                {
+                    rowButton.onClick.AddListener(() => onClick());
+                }
+
+                var textObj = new GameObject(
+                    "Caption",
+                    typeof(RectTransform),
+                    typeof(CanvasRenderer),
+                    typeof(Text)
+                );
+                textObj.layer = row.layer;
+                textObj.transform.SetParent(row.transform, false);
+
+                var textRect = textObj.GetComponent<RectTransform>();
+                textRect.anchorMin = Vector2.zero;
+                textRect.anchorMax = Vector2.one;
+                textRect.offsetMin = new Vector2(4f, 2f);
+                textRect.offsetMax = new Vector2(-4f, -2f);
+
+                var text = textObj.GetComponent<Text>();
+                text.text = isSelected ? "> " + option.DisplayName : option.DisplayName;
+                text.alignment = TextAnchor.MiddleLeft;
+                text.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+                text.color = Color.white;
+                text.fontSize = 6;
+                text.horizontalOverflow = HorizontalWrapMode.Overflow;
+                text.verticalOverflow = VerticalWrapMode.Truncate;
+                text.raycastTarget = false;
+            }
+
+            private static List<LoadSourceOption> BuildLoadSourceOptions()
+            {
+                List<Mercenary> mercs = QuickGearService.GetMercenariesWithSavedEquipment();
+                var options = mercs
+                    .Where(merc => merc != null)
+                    .Select(merc =>
+                    {
+                        string mercName = QuickGearService.GetMercenaryDropdownName(merc.ProfileId);
+                        string className = QuickGearService.GetMercenaryClassDisplayName(merc);
+
+                        string label = string.IsNullOrWhiteSpace(className)
+                            ? mercName
+                            : mercName + " - " + className;
+
+                        return new LoadSourceOption
+                        {
+                            ProfileId = merc.ProfileId,
+                            DisplayName = label
+                        };
+                    }
+                    )
+                    .ToList();
+
+                var nameCounts = options
+                    .GroupBy(option => option.DisplayName, StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(group => group.Key, group => group.Count(), StringComparer.OrdinalIgnoreCase);
+
+                foreach (var option in options)
+                {
+                    if (nameCounts.TryGetValue(option.DisplayName, out int count) && count > 1)
+                    {
+                        int index = options
+                            .TakeWhile(existing => !ReferenceEquals(existing, option))
+                            .Count(existing => string.Equals(existing.DisplayName, option.DisplayName, StringComparison.OrdinalIgnoreCase));
+                        option.DisplayName = option.DisplayName + " (" + (index + 1).ToString() + ")";
+                    }
+
+                    Debug.Log(
+                        "[QuickGear] Load source option label: "
+                            + option.ProfileId
+                            + " -> "
+                            + option.DisplayName
+                    );
+                }
+
+                return options;
+            }
+
+            private static void CloseLoadSourceDropdown()
+            {
+                if (_loadSourceDropdownParent == null)
+                {
+                    return;
+                }
+
+                var dropdown = _loadSourceDropdownParent.Find("LoadSourceDropdownPanel");
+                if (dropdown != null)
+                {
+                    UnityEngine.Object.Destroy(dropdown.gameObject);
+                }
+
+                _loadSourceDropdownParent = null;
+            }
+
+            private sealed class LoadSourceOption
+            {
+                public string ProfileId { get; set; }
+                public string DisplayName { get; set; }
             }
 
             private class QuickGearTooltip

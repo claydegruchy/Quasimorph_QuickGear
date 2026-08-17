@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using MGSC;
@@ -150,17 +151,27 @@ namespace QuasimorphHelloWorld
             );
         }
 
-        public static void LoadSavedEquipment(Mercenary merc)
+        public static void LoadSavedEquipment(Mercenary merc, string sourceMercProfileId = null)
         {
-            string profileId = merc.ProfileId;
-            if (!TryGetSavedEquipment(profileId, out var savedEquip))
+            if (merc == null)
             {
-                Debug.Log($"[QuickGear] No saved equipment for {profileId}");
+                Debug.Log("[QuickGear] No merc provided for saved equipment load.");
+                return;
+            }
+
+            string profileId = merc.ProfileId;
+            string sourceProfileId = string.IsNullOrWhiteSpace(sourceMercProfileId)
+                ? profileId
+                : sourceMercProfileId;
+
+            if (!TryGetSavedEquipment(sourceProfileId, out var savedEquip))
+            {
+                Debug.Log($"[QuickGear] No saved equipment for source profile {sourceProfileId}");
                 return;
             }
 
             Debug.Log(
-                $"[QuickGear] LoadSavedEquipment for {profileId}: equipment={savedEquip.Equipment.Count}, limbs={savedEquip.Limbs.Count}, implants={savedEquip.Implants.Values.Sum(list => list?.Count ?? 0)}"
+                $"[QuickGear] LoadSavedEquipment target={profileId}, source={sourceProfileId}: equipment={savedEquip.Equipment.Count}, limbs={savedEquip.Limbs.Count}, implants={savedEquip.Implants.Values.Sum(list => list?.Count ?? 0)}"
             );
             bool handleAugsAndImplants = ModConfigStore.Config.HandleAugsAndImplants;
 
@@ -385,7 +396,7 @@ namespace QuasimorphHelloWorld
             }
 
             RefreshArsenalScreen();
-            Debug.Log($"[QuickGear] Loaded saved equipment for {profileId}");
+            Debug.Log($"[QuickGear] Loaded saved equipment for {profileId} from source {sourceProfileId}");
         }
 
         private static void ClearExistingAugmentationsAndImplants(
@@ -445,7 +456,149 @@ namespace QuasimorphHelloWorld
 
         public static bool HasSavedEquipment(Mercenary merc)
         {
+            if (merc == null)
+            {
+                return false;
+            }
+
             return TryGetSavedEquipment(merc.ProfileId, out _);
+        }
+
+        public static bool HasSavedEquipment(string profileId)
+        {
+            if (string.IsNullOrWhiteSpace(profileId))
+            {
+                return false;
+            }
+
+            return TryGetSavedEquipment(profileId, out _);
+        }
+
+        public static List<Mercenary> GetMercenariesWithSavedEquipment()
+        {
+            if (ModMain._modContext == null)
+            {
+                return new List<Mercenary>();
+            }
+
+            Mercenaries mercenaries = ModMain._modContext.State.Get<Mercenaries>();
+            if (mercenaries?.Values == null)
+            {
+                return new List<Mercenary>();
+            }
+
+            return mercenaries
+                .Values.Where(merc => merc != null && HasSavedEquipment(merc.ProfileId))
+                .OrderBy(merc => GetMercenaryDisplayName(merc.ProfileId), StringComparer.OrdinalIgnoreCase)
+                .ThenBy(merc => merc.ProfileId, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        public static string GetMercenaryDisplayName(string profileId)
+        {
+            if (string.IsNullOrWhiteSpace(profileId) || ModMain._modContext == null)
+            {
+                return profileId ?? string.Empty;
+            }
+
+            Mercenaries mercenaries = ModMain._modContext.State.Get<Mercenaries>();
+            Mercenary merc = mercenaries?.Get(profileId);
+            if (merc == null)
+            {
+                string normalized = NormalizeProfileId(profileId);
+                if (!string.Equals(normalized, profileId, StringComparison.Ordinal))
+                {
+                    merc = mercenaries?.Get(normalized);
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(merc?.AgentName))
+            {
+                return merc.AgentName;
+            }
+
+            if (TryGetLocalizedMercName(profileId, out string localizedRawName))
+            {
+                return localizedRawName;
+            }
+
+            string normalizedProfileId = NormalizeProfileId(profileId);
+            if (!string.Equals(normalizedProfileId, profileId, StringComparison.Ordinal))
+            {
+                if (TryGetLocalizedMercName(normalizedProfileId, out string localizedNormalizedName))
+                {
+                    return localizedNormalizedName;
+                }
+            }
+
+            return normalizedProfileId;
+        }
+
+        public static string GetMercenaryDropdownName(string profileId)
+        {
+            string normalizedProfileId = NormalizeProfileId(profileId);
+            if (string.IsNullOrWhiteSpace(normalizedProfileId))
+            {
+                return string.Empty;
+            }
+
+            string[] parts = normalizedProfileId
+                .Split(new[] { '_' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0)
+            {
+                return normalizedProfileId;
+            }
+
+            TextInfo textInfo = CultureInfo.InvariantCulture.TextInfo;
+            return string.Join(" ", parts.Select(part => textInfo.ToTitleCase(part)));
+        }
+
+        public static string GetMercenaryClassDisplayName(Mercenary merc)
+        {
+            if (merc == null)
+            {
+                return string.Empty;
+            }
+
+            if (string.IsNullOrWhiteSpace(merc.MercClassId))
+            {
+                return Localization.Get("ui.label.noclass", true);
+            }
+
+            string classKey = "class." + merc.MercClassId + ".name";
+            string localizedClass = Localization.Get(classKey, true);
+            if (!string.IsNullOrWhiteSpace(localizedClass) && !string.Equals(localizedClass, classKey, StringComparison.OrdinalIgnoreCase))
+            {
+                return localizedClass;
+            }
+
+            TextInfo textInfo = CultureInfo.InvariantCulture.TextInfo;
+            string[] parts = merc.MercClassId.Split(new[] { '_' }, StringSplitOptions.RemoveEmptyEntries);
+            return parts.Length == 0
+                ? merc.MercClassId
+                : string.Join(" ", parts.Select(part => textInfo.ToTitleCase(part)));
+        }
+
+        private static bool TryGetLocalizedMercName(string profileId, out string localizedName)
+        {
+            string specKey = "spec." + profileId + ".name";
+            string specName = Localization.Get(specKey, true);
+            if (!string.IsNullOrWhiteSpace(specName) && !string.Equals(specName, specKey, StringComparison.OrdinalIgnoreCase))
+            {
+                localizedName = specName;
+                return true;
+            }
+
+            string monsterKey = "monster." + profileId + ".name";
+            string monsterName = Localization.Get(monsterKey, true);
+            if (!string.IsNullOrWhiteSpace(monsterName) && !string.Equals(monsterName, monsterKey, StringComparison.OrdinalIgnoreCase))
+            {
+                localizedName = monsterName;
+                return true;
+            }
+
+            localizedName = null;
+            return false;
         }
 
         public static Mercenary GetSelectedMerc()
