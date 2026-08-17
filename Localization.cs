@@ -1,6 +1,7 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using MGSC;
 
 namespace QuasimorphHelloWorld
 {
@@ -244,7 +245,7 @@ namespace QuasimorphHelloWorld
 
         public static string Get(string key)
         {
-            string selectedLanguage = NormalizeLanguageCode(ModConfigStore.GlobalSettings?.Language);
+            string selectedLanguage = GetCurrentLanguageCode();
 
             if (BuiltInTranslations.TryGetValue(selectedLanguage, out var selectedMap) && selectedMap.TryGetValue(key, out var localizedValue))
             {
@@ -257,6 +258,31 @@ namespace QuasimorphHelloWorld
             }
 
             return key;
+        }
+
+        private static string GetCurrentLanguageCode()
+        {
+            // The game language is the source of truth. The previous working
+            // version read CurrentLang directly, while the new version only
+            // consulted global_config.json (whose default is "en").
+            try
+            {
+                var localization = Singleton<Localization>.Instance;
+                if (localization != null)
+                {
+                    string gameLanguage = localization.CurrentLang.ToString();
+                    if (!string.IsNullOrWhiteSpace(gameLanguage))
+                    {
+                        return NormalizeLanguageCode(gameLanguage);
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                // Use the mod setting if the game localization service is not
+                // ready yet during bootstrap.
+            }
+            return NormalizeLanguageCode(ModConfigStore.GlobalSettings?.Language);
         }
     }
 }

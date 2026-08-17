@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -15,6 +15,21 @@ namespace QuasimorphHelloWorld
         {
             // QuickGear is triggered from the Arsenal UI buttons instead of a keybind.
         }
+
+        private static readonly string[] EquipmentLoadOrder =
+            {
+            "Backpack",
+            "Vest",
+            "Armor",
+            "Helmet",
+            "Leggings",
+            "Boots",
+            "Primary",
+            "Secondary",
+            "ServoArm",
+            "Additional"
+        };
+
 
         public static void SaveEquipment(Mercenary merc)
         {
@@ -175,6 +190,15 @@ namespace QuasimorphHelloWorld
             );
             bool handleAugsAndImplants = ModConfigStore.Config.HandleAugsAndImplants;
 
+            savedEquip.Equipment ??= new Dictionary<string, string>();
+            savedEquip.Limbs ??= new Dictionary<string, string>();
+            savedEquip.Implants ??= new Dictionary<string, List<string>>();
+            bool hasSavedAugmentData =
+                savedEquip.Limbs.Count > 0
+                || savedEquip.Implants.Values.Any(
+                    implants => implants != null && implants.Count > 0
+                );
+
             var inventory = merc.CreatureData.Inventory;
             var magnumCargo = ModMain._modContext.State.Get<MagnumCargo>();
             if (magnumCargo == null)
@@ -197,7 +221,7 @@ namespace QuasimorphHelloWorld
             Debug.Log($"[QuickGear] Ship cargo has {shipCargoItems.Count} items available.");
             var perkFactory = ModMain._modContext.State.Get<PerkFactory>();
 
-            if (handleAugsAndImplants)
+            if (handleAugsAndImplants && hasSavedAugmentData)
             {
                 if (cargoFallback != null)
                 {
@@ -219,7 +243,7 @@ namespace QuasimorphHelloWorld
             List<string> failedLimbs = new List<string>();
             List<string> failedImplants = new List<string>();
 
-            if (handleAugsAndImplants)
+            if (handleAugsAndImplants && hasSavedAugmentData)
             {
                 foreach (var kvp in savedEquip.Limbs)
                 {
@@ -326,13 +350,22 @@ namespace QuasimorphHelloWorld
                 AugmentationSystem.ConfigureImplicitEffects(merc.CreatureData, false);
             }
 
-            foreach (var kvp in savedEquip.Equipment)
+            foreach (string slotName in EquipmentLoadOrder)
             {
-                string slotName = kvp.Key;
-                string itemId = kvp.Value;
+                if (
+                    savedEquip.Equipment == null
+                    || !savedEquip.Equipment.TryGetValue(
+                        slotName,
+                        out string itemId
+                    )
+                )
+                {
+                    continue;
+                }
                 Debug.Log($"[QuickGear] Loading equipment {itemId} into slot {slotName}.");
 
                 var item = allItems.FirstOrDefault(i => i.Id == itemId);
+
                 if (item == null)
                 {
                     item = shipCargoItems.FirstOrDefault(i => i.Id == itemId);
