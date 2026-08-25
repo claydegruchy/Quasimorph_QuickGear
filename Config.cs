@@ -183,7 +183,6 @@ namespace QuasimorphHelloWorld
 
         public static void ApplyGlobalSettings()
         {
-            Debug.unityLogger.logEnabled = GlobalSettings.EnableLogging;
         }
 
         public static void SaveConfig()
